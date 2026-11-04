@@ -274,6 +274,12 @@ fn real_main(cli: Cli) -> Result<(), String> {
             let mut w = worker::Worker::new(a.as_ref(), &cmd, 0);
             w.ensure_started()?;
             println!("{} {}", a.name(), w.version.clone().unwrap());
+            if !a.tested() {
+                println!(
+                    "(the {} adapter was written from the documentation, untested)",
+                    a.name()
+                );
+            }
             println!("started in {:.3} s", w.start_times[0]);
             Ok(())
         }

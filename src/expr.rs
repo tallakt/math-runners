@@ -425,31 +425,6 @@ impl Expr {
         }
     }
 
-    /// Every name called as a function, with its number of arguments.
-    pub fn calls(&self, out: &mut Vec<(String, usize)>) {
-        match self {
-            Expr::Call(name, args) => {
-                if !out.iter().any(|(n, k)| n == name && *k == args.len()) {
-                    out.push((name.clone(), args.len()));
-                }
-                for a in args {
-                    a.calls(out);
-                }
-            }
-            Expr::Prime(_, _, args) | Expr::List(args) => {
-                for a in args {
-                    a.calls(out);
-                }
-            }
-            Expr::Neg(a) | Expr::Not(a) => a.calls(out),
-            Expr::Bin(_, a, b) | Expr::Rel(_, a, b) | Expr::And(a, b) | Expr::Or(a, b) => {
-                a.calls(out);
-                b.calls(out);
-            }
-            _ => {}
-        }
-    }
-
     pub fn as_sym(&self) -> Option<&str> {
         match self {
             Expr::Sym(s) => Some(s),
@@ -471,26 +446,6 @@ impl Expr {
             Expr::List(v) => v.clone(),
             e => vec![e.clone()],
         }
-    }
-
-    /// Replace each call of the functions in `names` by the call's
-    /// replacement, bottom up.
-    pub fn map(&self, f: &dyn Fn(&Expr) -> Option<Expr>) -> Expr {
-        let mapped = match self {
-            Expr::Call(n, args) => Expr::Call(n.clone(), args.iter().map(|a| a.map(f)).collect()),
-            Expr::List(args) => Expr::List(args.iter().map(|a| a.map(f)).collect()),
-            Expr::Prime(n, k, args) => {
-                Expr::Prime(n.clone(), *k, args.iter().map(|a| a.map(f)).collect())
-            }
-            Expr::Neg(a) => Expr::Neg(Box::new(a.map(f))),
-            Expr::Not(a) => Expr::Not(Box::new(a.map(f))),
-            Expr::Bin(op, a, b) => Expr::Bin(*op, Box::new(a.map(f)), Box::new(b.map(f))),
-            Expr::Rel(r, a, b) => Expr::Rel(*r, Box::new(a.map(f)), Box::new(b.map(f))),
-            Expr::And(a, b) => Expr::And(Box::new(a.map(f)), Box::new(b.map(f))),
-            Expr::Or(a, b) => Expr::Or(Box::new(a.map(f)), Box::new(b.map(f))),
-            e => e.clone(),
-        };
-        f(&mapped).unwrap_or(mapped)
     }
 
     /// Whether a symbol of `vars` is in the expression.

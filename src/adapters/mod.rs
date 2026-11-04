@@ -93,45 +93,6 @@ pub fn by_slug(slug: &str) -> Option<Box<dyn Adapter>> {
         .find(|a| a.slug() == slug.to_ascii_lowercase())
 }
 
-/// The ops of section 4 of the formats.
-pub const OPS: &[&str] = &[
-    "integrate",
-    "solve_ode",
-    "solve_pde",
-    "sum",
-    "product",
-    "solve_recurrence",
-    "limit",
-    "series",
-    "laplace",
-    "inverse_laplace",
-    "fourier",
-    "inverse_fourier",
-    "mellin",
-    "inverse_mellin",
-    "z_transform",
-    "inverse_z_transform",
-    "solve",
-    "simplify",
-    "factor",
-    "gcd",
-    "lcm",
-    "resultant",
-    "discriminant",
-    "partial_fractions",
-    "groebner",
-    "determinant",
-    "inverse",
-    "rank",
-    "nullspace",
-    "eigenvalues",
-    "eigenvectors",
-    "jordan_form",
-    "solve_linear",
-    "evaluate",
-    "hyperexpand",
-];
-
 /// A string literal for systems that quote with `"` and escape with `\`.
 pub fn quoted(s: &str) -> String {
     let mut out = String::from("\"");

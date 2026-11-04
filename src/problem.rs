@@ -9,6 +9,7 @@ use crate::print::{Unsupported, unsupported};
 #[derive(Clone, Debug)]
 pub struct Problem {
     pub id: String,
+    #[allow(dead_code)]
     pub category: String,
     pub op: String,
     pub args: Map<String, Value>,
@@ -50,14 +51,6 @@ impl Problem {
         match self.args.get(key) {
             Some(v) => value_expr(key, v),
             None => unsupported(format!("the argument {key} is missing")),
-        }
-    }
-
-    pub fn opt_expr(&self, key: &str) -> Result<Option<Expr>, Unsupported> {
-        if self.has(key) {
-            self.expr(key).map(Some)
-        } else {
-            Ok(None)
         }
     }
 

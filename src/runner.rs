@@ -131,6 +131,12 @@ fn run(
     first.verbose = verbose;
     first.ensure_started()?;
     let version = first.version.clone().unwrap();
+    if !adapter.tested() {
+        eprintln!(
+            "note: the {} adapter was written from the documentation, untested",
+            adapter.name()
+        );
+    }
     eprintln!(
         "{} {version}, started in {:.2} s; {total} problems, timeout {} s, {} job(s)",
         adapter.name(),

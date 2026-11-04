@@ -252,10 +252,6 @@ impl Session {
         crate::procinfo::group_cpu_seconds(self.pgid)
     }
 
-    pub fn pid(&self) -> u32 {
-        self.child.id()
-    }
-
     /// Kill the whole process group, and wait for the system.
     pub fn kill(&mut self) {
         self.stdin = None;
