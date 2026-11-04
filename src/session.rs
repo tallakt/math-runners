@@ -183,14 +183,26 @@ impl Session {
         deadline: Instant,
         watch_idle: bool,
     ) -> Result<String, ReadError> {
+        self.read_to_any(&[marker], deadline, watch_idle)
+            .map(|(_, text)| text)
+    }
+
+    /// Read up to the first line that is one of `markers` alone: which one,
+    /// and what came before it.
+    pub fn read_to_any(
+        &mut self,
+        markers: &[&str],
+        deadline: Instant,
+        watch_idle: bool,
+    ) -> Result<(usize, String), ReadError> {
         let mut searched = 0;
         let mut last_activity = Instant::now();
         let mut last_cpu = if watch_idle { self.cpu_seconds() } else { None };
         loop {
-            if let Some((before, after)) = find_line(&self.out, marker, searched) {
+            if let Some((which, before, after)) = find_line(&self.out, markers, searched) {
                 let text = self.out[..before].to_string();
                 self.out.drain(..after);
-                return Ok(text);
+                return Ok((which, text));
             }
             // where to search next: the last line may still grow
             searched = self.out.rfind('\n').map(|i| i + 1).unwrap_or(0);
@@ -284,9 +296,9 @@ impl Drop for Session {
     }
 }
 
-/// Find a line that is `marker` alone, from `from` on: the byte where the
-/// line starts and the byte after its end.
-fn find_line(text: &str, marker: &str, from: usize) -> Option<(usize, usize)> {
+/// Find a line that is one of `markers` alone, from `from` on: which, the
+/// byte where the line starts and the byte after its end.
+fn find_line(text: &str, markers: &[&str], from: usize) -> Option<(usize, usize, usize)> {
     let mut start = from;
     // begin at a line start
     if start > 0 && !text[..start].ends_with('\n') {
@@ -297,8 +309,8 @@ fn find_line(text: &str, marker: &str, from: usize) -> Option<(usize, usize)> {
         let end = text[pos..].find('\n').map(|i| pos + i);
         let Some(end) = end else { return None };
         let line = text[pos..end].trim_end_matches('\r').trim();
-        if line == marker {
-            return Some((pos, end + 1));
+        if let Some(which) = markers.iter().position(|m| *m == line) {
+            return Some((which, pos, end + 1));
         }
         pos = end + 1;
     }
@@ -331,9 +343,12 @@ mod tests {
     #[test]
     fn markers_alone_on_a_line() {
         let t = "a\n x @@END 1\n@@END 1\nrest";
-        assert_eq!(find_line(t, "@@END 1", 0), Some((13, 21)));
-        assert_eq!(find_line("@@END 1\n", "@@END 1", 0), Some((0, 8)));
-        assert_eq!(find_line("@@END 1", "@@END 1", 0), None);
+        assert_eq!(find_line(t, &["@@END 1"], 0), Some((0, 13, 21)));
+        assert_eq!(
+            find_line("@@END 1\n", &["x", "@@END 1"], 0),
+            Some((1, 0, 8))
+        );
+        assert_eq!(find_line("@@END 1", &["@@END 1"], 0), None);
     }
 
     #[test]

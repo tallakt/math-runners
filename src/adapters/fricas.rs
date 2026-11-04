@@ -74,11 +74,14 @@ impl Dialect for D {
             return Ok(format!("{}({})", ident(name), a.join(", ")));
         }
         match (name, n) {
-            ("exp" | "log" | "sqrt" | "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "asin"
-            | "acos" | "atan" | "acot" | "asec" | "acsc" | "sinh" | "cosh" | "tanh" | "coth"
-            | "sech" | "csch" | "asinh" | "acosh" | "atanh" | "acoth" | "asech" | "acsch" | "abs"
-            | "floor" | "ceiling" | "conjugate" | "factorial" | "digamma" | "erf" | "erfi"
-            | "li", 1) => f(name),
+            (
+                "exp" | "log" | "sqrt" | "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "asin"
+                | "acos" | "atan" | "acot" | "asec" | "acsc" | "sinh" | "cosh" | "tanh" | "coth"
+                | "sech" | "csch" | "asinh" | "acosh" | "atanh" | "acoth" | "asech" | "acsch"
+                | "abs" | "floor" | "ceiling" | "conjugate" | "factorial" | "digamma" | "erf"
+                | "erfi" | "li",
+                1,
+            ) => f(name),
             ("log", 2) => Ok(format!("log({})/log({})", a[1], a[0])),
             ("root", 2) => Ok(format!("({})^(1/({}))", a[0], a[1])),
             ("re", 1) => f("real"),
@@ -131,7 +134,9 @@ impl Dialect for D {
             ("struve_l", 2) => f("struveL"),
             ("kelvin_ber", 2) => f("kelvinBer"),
             ("kelvin_bei", 2) => f("kelvinBei"),
-            _ => unsupported(format!("FriCAS has no {name} of {n} arguments (of these arguments)")),
+            _ => unsupported(format!(
+                "FriCAS has no {name} of {n} arguments (of these arguments)"
+            )),
         }
     }
 }
@@ -155,14 +160,20 @@ const ODE_RECORD: &str =
 
 fn build(p: &Problem) -> Result<Script, Unsupported> {
     let funcs = p.unknown_functions()?;
-    let d = D { funcs: funcs.clone() };
+    let d = D {
+        funcs: funcs.clone(),
+    };
     let pr = Printer::new(&d);
     let pe = |e: &Expr| pr.print(e);
     let arg = |k: &str| -> Out { pe(&p.expr(k)?) };
     let list = |k: &str| -> Out {
         Ok(format!(
             "[{}]",
-            p.exprs(k)?.iter().map(&pe).collect::<Result<Vec<_>, _>>()?.join(", ")
+            p.exprs(k)?
+                .iter()
+                .map(&pe)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ")
         ))
     };
     let var = |k: &str| -> Out { Ok(ident(&p.symbol(k)?)) };
@@ -237,7 +248,14 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
             if is_infinite(&from) || is_infinite(&to) {
                 return unsupported(format!("FriCAS's {} takes no infinite bounds", p.op));
             }
-            format!("{}({}, {} = {}..{})", p.op, arg("term")?, var("var")?, pe(&from)?, pe(&to)?)
+            format!(
+                "{}({}, {} = {}..{})",
+                p.op,
+                arg("term")?,
+                var("var")?,
+                pe(&from)?,
+                pe(&to)?
+            )
         }
         "solve_recurrence" => return unsupported("FriCAS has no recurrence solver"),
         "limit" => {
@@ -256,7 +274,12 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                      unparse(mrunO.rightHandLimit::InputForm), \"]\"]))"
                 ),
             ];
-            format!("limit(({})::{EXPR}, {} = {}{dir})", arg("expr")?, var("var")?, arg("point")?)
+            format!(
+                "limit(({})::{EXPR}, {} = {}{dir})",
+                arg("expr")?,
+                var("var")?,
+                arg("point")?
+            )
         }
         "series" => {
             let point = p.expr("point")?;
@@ -280,18 +303,29 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 format!("inverseLaplace(({f})::{EXPR}, {x}, {y})")
             }
         }
-        "fourier" | "inverse_fourier" | "mellin" | "inverse_mellin" | "z_transform"
+        "fourier"
+        | "inverse_fourier"
+        | "mellin"
+        | "inverse_mellin"
+        | "z_transform"
         | "inverse_z_transform" => {
             return unsupported(format!("FriCAS has no {}", p.op));
         }
         "solve" => {
             let eqs = p.exprs("equations")?;
-            if eqs.iter().any(|e| e.is_relation() && !matches!(e, Expr::Rel(Rel::Eq, ..))) {
+            if eqs
+                .iter()
+                .any(|e| e.is_relation() && !matches!(e, Expr::Rel(Rel::Eq, ..)))
+            {
                 return unsupported("FriCAS does not solve inequalities");
             }
             let vars: Vec<String> = p.symbols("vars")?.iter().map(|v| ident(v)).collect();
             // solve gives the real solutions, radicalSolve the complex ones
-            let f = if p.real_domain()? { "solve" } else { "radicalSolve" };
+            let f = if p.real_domain()? {
+                "solve"
+            } else {
+                "radicalSolve"
+            };
             if eqs.len() == 1 && vars.len() == 1 {
                 format!("{f}({}, {})", pe(&eqs[0])?, vars[0])
             } else {
@@ -313,7 +347,12 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
             if ps.len() != 2 {
                 return unsupported("a resultant of other than two polynomials");
             }
-            format!("resultant({}, {}, {})", pe(&ps[0])?, pe(&ps[1])?, var("var")?)
+            format!(
+                "resultant({}, {}, {})",
+                pe(&ps[0])?,
+                pe(&ps[1])?,
+                var("var")?
+            )
         }
         "discriminant" => format!("discriminant({}, {})", arg("expr")?, var("var")?),
         "partial_fractions" => {
@@ -334,7 +373,9 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
             let ring = match monomial_order(p)? {
                 MonomialOrder::Lex => "DistributedMultivariatePolynomial",
                 MonomialOrder::Grevlex => "HomogeneousDistributedMultivariatePolynomial",
-                MonomialOrder::Grlex => return unsupported("FriCAS: no grlex domain in the runner"),
+                MonomialOrder::Grlex => {
+                    return unsupported("FriCAS: no grlex domain in the runner");
+                }
             };
             format!(
                 "groebner([mrunP::{ring}([{}], Fraction(Integer)) for mrunP in {}])",
@@ -377,6 +418,12 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
 }
 
 impl Adapter for FriCAS {
+    fn clean_version(&self, text: &str) -> String {
+        // "FriCAS 1.4.0": the version
+        let t = text.trim();
+        t.strip_prefix("FriCAS ").unwrap_or(t).to_string()
+    }
+
     fn name(&self) -> &'static str {
         "FriCAS"
     }

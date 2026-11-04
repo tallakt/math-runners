@@ -64,6 +64,12 @@ pub trait Adapter: Send + Sync {
         text.trim().to_string()
     }
 
+    /// The version as the system printed it, made the version alone where
+    /// the system says more (its name, its copyright).
+    fn clean_version(&self, text: &str) -> String {
+        text.trim().to_string()
+    }
+
     /// Whether the adapter was tested against the system.
     fn tested(&self) -> bool {
         true

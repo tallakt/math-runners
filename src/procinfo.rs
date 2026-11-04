@@ -15,6 +15,7 @@ mod imp {
             return None;
         }
         let mut ticks: u64 = 0;
+        let mut ns: u64 = 0;
         let mut found = false;
         for entry in std::fs::read_dir("/proc").ok()?.flatten() {
             let name = entry.file_name();
@@ -35,11 +36,35 @@ mod imp {
                 continue;
             }
             found = true;
-            for i in 11..15 {
-                ticks += f[i].parse::<u64>().unwrap_or(0);
+            let field = |i: usize| f[i].parse::<u64>().unwrap_or(0);
+            // the CPU clock of the process, in nanoseconds, where the kernel
+            // gives it; else the clock ticks of stat
+            match on_cpu_ns(&name) {
+                Some(n) => ns += n,
+                None => ticks += field(11) + field(12),
             }
+            // the children it has waited for
+            ticks += field(13) + field(14);
         }
-        found.then(|| ticks as f64 / tick)
+        found.then(|| ticks as f64 / tick + ns as f64 / 1e9)
+    }
+
+    /// The process's CPU clock: every thread's time, the ended ones too, to
+    /// the nanosecond.
+    fn on_cpu_ns(pid: &str) -> Option<u64> {
+        let pid: libc::pid_t = pid.parse().ok()?;
+        let mut clock: libc::clockid_t = 0;
+        if unsafe { libc::clock_getcpuclockid(pid, &mut clock) } != 0 {
+            return None;
+        }
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        if unsafe { libc::clock_gettime(clock, &mut ts) } != 0 {
+            return None;
+        }
+        Some(ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64)
     }
 }
 

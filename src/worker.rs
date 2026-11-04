@@ -111,7 +111,7 @@ impl<'a> Worker<'a> {
         let version = before
             .lines()
             .find_map(|l| l.trim().strip_prefix("@@MR-VERSION "))
-            .map(|v| v.trim().to_string())
+            .map(|v| self.adapter.clean_version(v))
             .ok_or_else(|| format!("the system gave no version: {}", tail(&before)))?;
         match &self.version {
             Some(v) if *v != version => {
@@ -202,9 +202,28 @@ impl<'a> Worker<'a> {
         let t0 = Instant::now();
         let cpu0 = s.cpu_seconds();
         let deadline = t0 + Duration::from_secs_f64(timeout);
-        let result = s.read_to(&format!("@@MR-END {nonce}"), deadline, true);
-        let wall = t0.elapsed().as_secs_f64();
-        let cpu = match (cpu0, s.cpu_seconds()) {
+        // A system with no clock of its own prints `@@MR-COMPUTED` as its
+        // work is done, before it prints the answer: the times are taken
+        // then, here, the CPU time from the operating system.
+        let computed = format!("@@MR-COMPUTED {nonce}");
+        let end = format!("@@MR-END {nonce}");
+        let mut taken: Option<(f64, Option<f64>)> = None;
+        let mut before = String::new();
+        let mut result = s
+            .read_to_any(&[&computed, &end], deadline, true)
+            .map(|(which, text)| {
+                if which == 0 {
+                    taken = Some((t0.elapsed().as_secs_f64(), s.cpu_seconds()));
+                }
+                (which, text)
+            });
+        if let Ok((0, text)) = &result {
+            before = text.clone();
+            result = s.read_to(&end, deadline, true).map(|t| (1, t));
+        }
+        let result = result.map(|(_, text)| before + &text);
+        let (wall, cpu1) = taken.unwrap_or_else(|| (t0.elapsed().as_secs_f64(), s.cpu_seconds()));
+        let cpu = match (cpu0, cpu1) {
             (Some(a), Some(b)) if b >= a => Some(b - a),
             _ => None,
         };
