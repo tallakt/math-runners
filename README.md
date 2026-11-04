@@ -186,6 +186,11 @@ Where the formats name no convention, the runner chose (and the checker should k
 - **`domain`** of `factor`: `rationals` or `integers` (the default), or `gaussian` for the Gaussian
   rationals; another is `unsupported`. **`order`** of `groebner`: `lex`, `grlex` or `grevlex`.
 - **`convention`** of a transform: only the formats' default; another is `unsupported`.
+- **`order`** of a series: the systems that truncate at a power (SymPy's and Maple's `series`)
+  get `order`; those that keep the powers up to one (Maxima's `taylor`, FriCAS's `approximate`,
+  Giac's and Mathematica's `Series`) get `order - 1`. The two agree for whole powers, of
+  `var - point` or, at infinity, of `1/var`; a Puiseux series' fractional powers between
+  `order - 1` and `order` are left out by the second kind.
 
 The commands, and the part of the result that is written where it is not the whole:
 
