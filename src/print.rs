@@ -212,6 +212,18 @@ impl<'a> Printer<'a> {
     }
 }
 
+/// The arguments of a neutral `subs(f, x = a)`: the expression, the
+/// variable and the value.
+pub fn subs_args(args: &[Expr]) -> Result<(Expr, String, Expr), Unsupported> {
+    match args {
+        [e, Expr::Rel(Rel::Eq, v, a)] => match v.as_ref() {
+            Expr::Sym(v) => Ok((e.clone(), v.clone(), a.as_ref().clone())),
+            _ => unsupported("subs: the variable is not a symbol"),
+        },
+        _ => unsupported("subs is not of the form subs(f, x = a)"),
+    }
+}
+
 /// The arguments of a neutral `diff(f, x, 2)` or `diff(u, x, t)`: the
 /// expression and the variables, each with its order.
 pub fn diff_args(args: &[Expr]) -> Result<(Expr, Vec<(String, usize)>), Unsupported> {

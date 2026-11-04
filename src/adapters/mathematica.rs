@@ -79,6 +79,15 @@ impl Dialect for D {
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
+        if name == "subs" {
+            let (e, v, a) = crate::print::subs_args(args)?;
+            return Ok(format!(
+                "({} /. {} -> {})",
+                p.print(&e)?,
+                ident(&v),
+                p.print(&a)?
+            ));
+        }
         if name == "diff" {
             let (f, vars) = diff_args(args)?;
             let vs: Vec<String> = vars
@@ -357,6 +366,7 @@ fn build(p: &Problem) -> Result<String, Unsupported> {
             }
             format!("Resultant[{}, {}, {}]", ps[0], ps[1], var("var")?)
         }
+        "minimal_polynomial" => format!("MinimalPolynomial[{}, {}]", arg("expr")?, var("var")?),
         "discriminant" => format!("Discriminant[{}, {}]", arg("expr")?, var("var")?),
         "partial_fractions" => format!("Apart[{}, {}]", arg("expr")?, var("var")?),
         "groebner" => {
@@ -385,7 +395,12 @@ fn build(p: &Problem) -> Result<String, Unsupported> {
                 "eigenvectors" => format!("Eigensystem[{m}]"),
                 // JordanDecomposition gives {S, J}: the form is J
                 "jordan_form" => format!("JordanDecomposition[{m}][[2]]"),
-                _ => format!("LinearSolve[{m}, {}]", arg("rhs")?),
+                // the solution vector, with the free unknowns as its
+                // parameters: LinearSolve gives one solution only
+                _ => format!(
+                    "With[{{mrV = Array[mrX, Length[First[{m}]]]}}, mrV /. First[Solve[{m} . mrV == {}, mrV]]]",
+                    arg("rhs")?
+                ),
             }
         }
         op => return unsupported(format!("the op {op} is not known to the runner")),

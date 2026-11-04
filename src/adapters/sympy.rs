@@ -94,6 +94,15 @@ impl Dialect for D {
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
+        if name == "subs" {
+            let (e, v, a) = crate::print::subs_args(args)?;
+            return Ok(format!(
+                "({}).subs({}, {})",
+                p.print(&e)?,
+                var(&v),
+                p.print(&a)?
+            ));
+        }
         if name == "diff" {
             let (f, vars) = diff_args(args)?;
             let vs: Vec<String> = vars
@@ -461,6 +470,11 @@ fn build(p: &Problem) -> Result<Code, Unsupported> {
                 var(&p.symbol("var")?)
             )
         }
+        "minimal_polynomial" => format!(
+            "result = sp.minimal_polynomial({}, {})",
+            arg("expr")?,
+            var(&p.symbol("var")?)
+        ),
         "discriminant" => format!(
             "result = sp.discriminant({}, {})",
             arg("expr")?,
@@ -499,7 +513,14 @@ fn build(p: &Problem) -> Result<Code, Unsupported> {
                     answer = "result[1]".into();
                     format!("result = {m}.jordan_form()")
                 }
-                _ => format!("result = sp.linsolve(({m}, sp.Matrix({})))", arg("rhs")?),
+                _ => {
+                    // the solution vector, its free parameters tau0, tau1, ...
+                    answer = "result[0]".into();
+                    format!(
+                        "result = {m}.gauss_jordan_solve(sp.Matrix({}))",
+                        arg("rhs")?
+                    )
+                }
             }
         }
         op => return unsupported(format!("the op {op} is not known to the runner")),

@@ -54,6 +54,15 @@ impl Dialect for D {
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
+        if name == "subs" {
+            let (e, v, a) = crate::print::subs_args(args)?;
+            return Ok(format!(
+                "eval({}, {} = {})",
+                p.print(&e)?,
+                ident(&v),
+                p.print(&a)?
+            ));
+        }
         if name == "diff" {
             let (f, vars) = diff_args(args)?;
             let mut s = p.print(&f)?;
@@ -213,7 +222,8 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                          reduce(+, [concat(\"C\", string(mrunI))::Symbol::{EXPR} * mrunO.basis.mrunI \
                          for mrunI in 1..#mrunO.basis], 0))::InputForm))"
                     ),
-                    format!("unparse((mrunR :: {EXPR})::InputForm)"),
+                    // a nonlinear ODE: a first integral F, the solution F = C1
+                    format!("unparse(equation(mrunR :: {EXPR}, 'C1::{EXPR})::InputForm)"),
                     plain,
                 ];
                 format!("solve({eq}, {y}, {x})")
@@ -354,6 +364,11 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 var("var")?
             )
         }
+        "minimal_polynomial" => {
+            return unsupported(
+                "FriCAS: no minimal polynomial of an algebraic expression in the runner",
+            );
+        }
         "discriminant" => format!("discriminant({}, {})", arg("expr")?, var("var")?),
         "partial_fractions" => {
             answers = vec![
@@ -403,6 +418,12 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 }
                 "solve_linear" => {
                     answers = vec![
+                        // the solution vector, particular + t1 basis.1 + ...
+                        "unparse(vector([((mrunR.particular :: Vector(Fraction(Integer))).mrunJ)::Expression(Integer) + \
+                         reduce(+, [concat(\"t\", string(mrunI))::Symbol::Expression(Integer) * \
+                         ((mrunR.basis.mrunI).mrunJ)::Expression(Integer) for mrunI in 1..#mrunR.basis], 0) \
+                         for mrunJ in 1..#(mrunR.particular :: Vector(Fraction(Integer)))])::InputForm)"
+                            .into(),
                         "concat([\"[particular = \", unparse(mrunR.particular::InputForm), \
                          \", basis = \", unparse(mrunR.basis::InputForm), \"]\"])"
                             .into(),

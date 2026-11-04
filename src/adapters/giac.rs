@@ -54,6 +54,31 @@ impl Dialect for D {
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
+        if name == "subs" {
+            // a derivative of an unknown function at a point is y'(a), as
+            // desolve takes it
+            let (e, v, a) = crate::print::subs_args(args)?;
+            let (f, order) = match &e {
+                Expr::Call(d, dargs) if d == "diff" => {
+                    let (f, vars) = diff_args(dargs)?;
+                    let same = vars.iter().all(|(w, _)| *w == v);
+                    (
+                        if same { Some(f) } else { None },
+                        vars.iter().map(|x| x.1).sum(),
+                    )
+                }
+                f => (Some(f.clone()), 0),
+            };
+            if let Some(Expr::Call(name, fargs)) = &f {
+                if self.funcs.iter().any(|g| g.0 == *name)
+                    && fargs.len() == 1
+                    && fargs[0].as_sym() == Some(v.as_str())
+                {
+                    return Ok(format!("{name}{}({})", "'".repeat(order), p.print(&a)?));
+                }
+            }
+            return Ok(format!("subs({}, {v} = {})", p.print(&e)?, p.print(&a)?));
+        }
         if name == "diff" {
             let (f, vars) = diff_args(args)?;
             let vs: Vec<String> = vars
@@ -272,6 +297,8 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
             } else {
                 "csolve"
             };
+            // the solutions as a plain list: string() writes solve's as list[...]
+            answer = "string([op(mrr)])".into();
             format!("{f}({}, {vars})", list("equations")?)
         }
         "simplify" | "evaluate" => format!("simplify({})", arg("expr")?),
@@ -300,6 +327,7 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 var("var")?
             )
         }
+        "minimal_polynomial" => format!("pmin({}, {})", arg("expr")?, var("var")?),
         "discriminant" => format!("discriminant({}, {})", arg("expr")?, var("var")?),
         "partial_fractions" => format!("partfrac({}, {})", arg("expr")?, var("var")?),
         "groebner" => {
@@ -323,7 +351,9 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 "rank" => format!("rank({m})"),
                 "nullspace" => format!("ker({m})"),
                 "eigenvalues" => format!("[eigenvals({m})]"),
-                "eigenvectors" => format!("eigenvects({m})"),
+                // jordan gives [P, J]: the eigenvectors are the columns of P,
+                // their values the diagonal of J; eigenvects gives P alone
+                "eigenvectors" => format!("[jordan({m})]"),
                 "jordan_form" => {
                     // jordan gives [P, J]: the form is J
                     answer = "string(mrr[1])".into();

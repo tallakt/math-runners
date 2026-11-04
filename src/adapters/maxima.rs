@@ -56,6 +56,10 @@ impl Dialect for D {
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
+        if name == "subs" {
+            let (e, v, a) = crate::print::subs_args(args)?;
+            return Ok(format!("at({}, {v} = {})", p.print(&e)?, p.print(&a)?));
+        }
         if name == "diff" {
             let (f, vars) = diff_args(args)?;
             let vs: Vec<String> = vars.iter().map(|(v, k)| format!("{v}, {k}")).collect();
@@ -339,6 +343,9 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 p.symbol("var")?
             )
         }
+        "minimal_polynomial" => {
+            return unsupported("Maxima has no minimal polynomial of an algebraic number");
+        }
         "discriminant" => format!("poly_discriminant({}, {})", arg("expr")?, p.symbol("var")?),
         "partial_fractions" => format!("partfrac({}, {})", arg("expr")?, p.symbol("var")?),
         "groebner" => {
@@ -361,7 +368,8 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 "determinant" => format!("determinant({m})"),
                 "inverse" => format!("invert({m})"),
                 "rank" => format!("rank({m})"),
-                "nullspace" => format!("nullspace({m})"),
+                // the basis vectors, out of span(...)
+                "nullspace" => format!("args(nullspace({m}))"),
                 "eigenvalues" => format!("eigenvalues({m})"),
                 "eigenvectors" => format!("eigenvectors({m})"),
                 "jordan_form" => {

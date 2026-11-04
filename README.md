@@ -170,8 +170,11 @@ table.
 
 Where the formats name no convention, the runner chose (and the checker should know):
 
-- **A derivative in an ODE's conditions** is written with primes, `y'(0) = 1`, `y''(0) = 0`, as the
-  formats name no form for it.
+- **A derivative in a condition**, `subs(diff(y(x), x), x = 0) = 2` in the formats, is given as
+  each system takes it: SymPy's `ics` (`y(x).diff(x).subs(x, 0)`), Maxima's `ic2` or `atvalue`,
+  FriCAS's initial values, Giac's `y'(0)`, Maple's `eval(diff(y(x), x), x = 0)` (which is
+  `D(y)(0)`), Mathematica's `D[y[x], x] /. x -> 0` (which is `y'[0]`). The runner also reads
+  `y'(0) = 2`, primes after the function's name.
 - **The variable** of integration and of a limit is given as real, of a sum or a product as an
   integer, where the system takes such an assumption (SymPy's symbols, Maple's `assuming`,
   Mathematica's `Assumptions`). Maxima and Giac take their symbols as real anyway; FriCAS takes no
@@ -210,7 +213,8 @@ in a fresh namespace; the answer is `str(result)` (a matrix printed on one line)
 | hyperexpand | `hyperexpand` | |
 | factor, gcd, lcm, resultant, discriminant, partial_fractions | `factor` (`gaussian=True`), `gcd_list`, `lcm_list`, `resultant`, `discriminant`, `apart` | |
 | groebner | `groebner(ps, *vars, order=...)` | the list of polynomials |
-| linear algebra | `Matrix(m).det()`, `.inv()`, `.rank()`, `.nullspace()`, `.eigenvals(multiple=True)`, `.eigenvects()`, `.jordan_form()`, `linsolve((A, b))` | of `jordan_form`, J |
+| minimal_polynomial | `minimal_polynomial(f, x)` | |
+| linear algebra | `Matrix(m).det()`, `.inv()`, `.rank()`, `.nullspace()`, `.eigenvals(multiple=True)`, `.eigenvects()`, `.jordan_form()`, `.gauss_jordan_solve(b)` | of `jordan_form`, J; of `solve_linear`, the solution vector, its parameters `tau0`, `tau1`, ... |
 
 ### Maxima
 
@@ -234,7 +238,8 @@ The answer is `string(result)`, with `display2d: false`.
 | hyperexpand | `hypergeometric_simp` | |
 | factor, gcd, lcm, resultant, discriminant, partial_fractions | `factor` (`gfactor` for `gaussian`), `gcd`, `lcm` (`functs`), `resultant`, `poly_discriminant`, `partfrac` | |
 | groebner | `poly_reduced_grobner` with `poly_monomial_order` | |
-| linear algebra | `determinant`, `invert`, `rank`, `nullspace`, `eigenvalues`, `eigenvectors`, `dispJordan(jordan(m))`, `linsolve` | of `solve_linear`, the values (`map(rhs, ...)`) |
+| minimal_polynomial | | `unsupported` |
+| linear algebra | `determinant`, `invert`, `rank`, `nullspace`, `eigenvalues`, `eigenvectors`, `dispJordan(jordan(m))`, `linsolve` | of `nullspace`, the basis vectors (`args` of its `span`); of `solve_linear`, the values (`map(rhs, ...)`), its parameters `%r1`, ... |
 
 ### FriCAS
 
@@ -243,7 +248,7 @@ The answer is `unparse(result::InputForm)`.
 | op | command | written |
 |---|---|---|
 | integrate | `integrate(f, x)`, `integrate(f, x = a..b)` | a definite integral FriCAS cannot do: `"failed"` or `"potentialPole"` |
-| solve_ode | one ODE: `solve(eq, y, x)`; with the initial values `y(a), y'(a), ...`: `solve(eq, y, x = a, [values])`; a system, or other conditions: `unsupported` | of a linear ODE, `y(x) = particular + C1 basis.1 + C2 basis.2 + ...` from FriCAS's record; with conditions `y(x) = result`; of a nonlinear one, FriCAS's first integral as it is |
+| solve_ode | one ODE: `solve(eq, y, x)`; with the initial values `y(a), y'(a), ...`: `solve(eq, y, x = a, [values])`; a system, or other conditions: `unsupported` | of a linear ODE, `y(x) = particular + C1 basis.1 + C2 basis.2 + ...` from FriCAS's record; with conditions `y(x) = result`; of a nonlinear one, FriCAS's first integral F as `F = C1` |
 | solve_pde, solve_recurrence | | `unsupported` |
 | sum, product | `sum(f, n = a..b)`, `product` | infinite bounds: `unsupported` |
 | limit | `limit(f, x = a)`, `"right"`, `"left"` | where the sides differ, `[leftHandLimit = ..., rightHandLimit = ...]` |
@@ -254,7 +259,8 @@ The answer is `unparse(result::InputForm)`.
 | factor, gcd, lcm, resultant, discriminant | `factor` (over `Complex(Integer)` for `gaussian`), `gcd`, `lcm`, `resultant`, `discriminant` | |
 | partial_fractions | `partialFraction(f, x)` | `whole + (num)/(den)^k + ...` from its terms |
 | groebner | `groebner` over `DMP` (lex) or `HDMP` (grevlex) | grlex: `unsupported` |
-| linear algebra | `determinant`, `inverse`, `rank`, `nullSpace`, `radicalEigenvalues`, `radicalEigenvectors`, `solve(m, v)` | eigenvectors as `[[value, multiplicity, [vectors]], ...]`; solve_linear as `[particular = ..., basis = [...]]`; jordan_form: `unsupported` |
+| minimal_polynomial | | `unsupported` |
+| linear algebra | `determinant`, `inverse`, `rank`, `nullSpace`, `radicalEigenvalues`, `radicalEigenvectors`, `solve(m, v)` | eigenvectors as `[[value, multiplicity, [vectors]], ...]`; solve_linear as the vector `particular + t1 basis.1 + ...`; jordan_form: `unsupported` |
 
 ### Giac
 
@@ -269,10 +275,10 @@ The answer is `string(result)`.
 | limit | `limit(f, x, a)`, `1`, `-1` | |
 | series | `convert(series(f, x = a, order - 1), polynom)` | |
 | transforms | `laplace`, `ilaplace`, `fourier`, `ifourier`, `ztrans`, `invztrans` (Giac's Fourier transform is the formats' one) | mellin: `unsupported` |
-| solve | `real`: `solve`; `complex`: `csolve`; inequalities `solve` | |
+| solve | `real`: `solve`; `complex`: `csolve`; inequalities `solve` | as a plain list, `[op(result)]`: `string` writes solve's as `list[...]` |
 | simplify, evaluate | `simplify` | hyperexpand: `unsupported` |
-| polynomials | `factor` (`cfactor`), `gcd`, `lcm`, `resultant`, `discriminant`, `partfrac`, `gbasis(ps, vars, plex/tdeg/revlex)` | |
-| linear algebra | `det`, `inv`, `rank`, `ker`, `[eigenvals(m)]`, `eigenvects`, `jordan`, `linsolve` | of `jordan`, J (the second) |
+| polynomials | `factor` (`cfactor`), `gcd`, `lcm`, `resultant`, `discriminant`, `partfrac`, `gbasis(ps, vars, plex/tdeg/revlex)`, `pmin(f, x)` | |
+| linear algebra | `det`, `inv`, `rank`, `ker`, `[eigenvals(m)]`, `[jordan(m)]`, `jordan`, `linsolve` | eigenvectors as `[P, J]`, the eigenvectors the columns of P, their values the diagonal of J (Giac's `eigenvects` gives P alone); of `jordan_form`, J |
 
 Giac prints its prompts on its standard output and `print` on its standard error; the adapter
 starts it as `sh -c 'exec giac --sage 2>&1'`. Set `GIAC_THREADS=1` to keep it to one core.
@@ -292,7 +298,7 @@ assumptions are given with `assuming`. Matrices and vectors are written as lists
 | transforms | `inttrans:-laplace`, `invlaplace`, `fourier`, `invfourier`, `mellin`, `invmellin`, `ztrans`, `invztrans` (inttrans's Fourier transform is the formats' one) | |
 | solve | `solve({eqs}, [vars], allsolutions)`, `RealDomain:-solve` for `real` | a list of lists |
 | simplify, evaluate, hyperexpand | `simplify`, `simplify(value(f))`, `simplify(convert(f, StandardFunctions))` | |
-| polynomials | `factor` (`factor(f, I)`), `gcd`, `lcm`, `resultant`, `discrim`, `convert(f, parfrac, x)`, `Groebner:-Basis(ps, plex/grlex/tdeg(vars))` | |
+| polynomials | `factor` (`factor(f, I)`), `gcd`, `lcm`, `resultant`, `discrim`, `convert(f, parfrac, x)`, `Groebner:-Basis(ps, plex/grlex/tdeg(vars))`, `PolynomialTools:-MinimalPolynomial(f, x)` | |
 | linear algebra | `LinearAlgebra:-Determinant`, `MatrixInverse`, `Rank`, `NullSpace`, `Eigenvalues`, `Eigenvectors`, `JordanForm`, `LinearSolve` | matrices `convert(m, listlist)`; the null space a list of lists; eigenvectors `[values, the vectors as columns]` |
 
 Maple's elliptic integrals are of the modulus and the sine of the amplitude: `elliptic_k(m)` is
@@ -313,8 +319,8 @@ The answer is `ToString[result, InputForm, PageWidth -> Infinity]`; the version 
 | transforms | `LaplaceTransform`, ..., `FourierTransform[..., FourierParameters -> {1, -1}]`, `MellinTransform`, `ZTransform` and their inverses | |
 | solve | `Solve[eqs, vars, Reals/Complexes]`; inequalities `Reduce[..., Reals]` | |
 | simplify, evaluate, hyperexpand | `FullSimplify[f, assumptions]`, `FunctionExpand` | |
-| polynomials | `Factor` (`GaussianIntegers -> True`), `PolynomialGCD`, `PolynomialLCM`, `Resultant`, `Discriminant`, `Apart`, `GroebnerBasis[..., MonomialOrder -> ...]` | |
-| linear algebra | `Det`, `Inverse`, `MatrixRank`, `NullSpace`, `Eigenvalues`, `Eigensystem`, `JordanDecomposition[m][[2]]`, `LinearSolve` | |
+| polynomials | `Factor` (`GaussianIntegers -> True`), `PolynomialGCD`, `PolynomialLCM`, `Resultant`, `Discriminant`, `Apart`, `GroebnerBasis[..., MonomialOrder -> ...]`, `MinimalPolynomial[f, x]` | |
+| linear algebra | `Det`, `Inverse`, `MatrixRank`, `NullSpace`, `Eigenvalues`, `Eigensystem`, `JordanDecomposition[m][[2]]`, `Solve[m . v == b, v]` | of `solve_linear`, the vector `v` of unknowns `mrX[1], ...` solved, the free ones its parameters (`LinearSolve` gives one solution) |
 
 A symbol with `_` is written with `$` (`a_1` as `a$1`), and the single capitals Mathematica keeps
 (`C`, `D`, `E`, `I`, `K`, `N`, `O`) with `mr` before them.

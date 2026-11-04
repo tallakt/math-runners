@@ -60,6 +60,10 @@ impl Dialect for D {
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
+        if name == "subs" {
+            let (e, v, a) = crate::print::subs_args(args)?;
+            return Ok(format!("eval({}, {v} = {})", p.print(&e)?, p.print(&a)?));
+        }
         if name == "diff" {
             let (f, vars) = diff_args(args)?;
             let vs: Vec<String> = vars
@@ -356,6 +360,11 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
             }
             format!("resultant({}, {}, {})", ps[0], ps[1], var("var")?)
         }
+        "minimal_polynomial" => format!(
+            "PolynomialTools:-MinimalPolynomial({}, {})",
+            arg("expr")?,
+            var("var")?
+        ),
         "discriminant" => format!("discrim({}, {})", arg("expr")?, var("var")?),
         "partial_fractions" => format!("convert({}, parfrac, {})", arg("expr")?, var("var")?),
         "groebner" => {

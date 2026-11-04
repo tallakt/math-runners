@@ -169,11 +169,39 @@ pub fn conditions(p: &Problem, key: &str) -> Result<Vec<Condition>, Unsupported>
         let (function, order, at) = match *lhs {
             Expr::Call(name, args) if funcs.iter().any(|f| f.0 == name) => (name, 0, args),
             Expr::Prime(name, k, args) if funcs.iter().any(|f| f.0 == name) => (name, k, args),
-            // diff(y(x), x, k) with x replaced by a point is not a form of
-            // the formats; `subs` neither
+            // subs(diff(y(x), x, k), x = a): the formats' derivative at a point
+            Expr::Call(name, args) if name == "subs" => {
+                let (e, var, at) = crate::print::subs_args(&args)?;
+                let (f, order) = match e {
+                    Expr::Call(d, dargs) if d == "diff" => {
+                        let (f, vars) = crate::print::diff_args(&dargs)?;
+                        if vars.iter().any(|(v, _)| *v != var) {
+                            return crate::print::unsupported(
+                                "a condition on a derivative in another variable than the one set",
+                            );
+                        }
+                        (f, vars.iter().map(|v| v.1).sum())
+                    }
+                    f => (f, 0),
+                };
+                match f {
+                    Expr::Call(name, fargs)
+                        if funcs.iter().any(|f| f.0 == name)
+                            && fargs.len() == 1
+                            && fargs[0].as_sym() == Some(var.as_str()) =>
+                    {
+                        (name, order, vec![at])
+                    }
+                    _ => {
+                        return crate::print::unsupported(
+                            "a condition is not of a function of one variable at a point",
+                        );
+                    }
+                }
+            }
             _ => {
                 return crate::print::unsupported(
-                    "a condition is not of the form y(a) = b or y'(a) = b",
+                    "a condition is not of the form y(a) = b or subs(diff(y(x), x), x = a) = b",
                 );
             }
         };

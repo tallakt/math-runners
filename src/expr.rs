@@ -7,8 +7,8 @@
 //! calls `f(a, b)`, lists `[a, b]`, numbers and symbols.
 //!
 //! One extension: a name with primes, as `y'(0)` or `y''(0)`, is the
-//! derivative of the unknown function `y` at a point, for the conditions of
-//! an ODE. The formats name no form for that, see the README.
+//! derivative of the unknown function `y` at a point, as
+//! `subs(diff(y(x), x), x = 0)` is in the formats.
 
 use std::fmt;
 
