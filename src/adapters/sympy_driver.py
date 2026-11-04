@@ -99,4 +99,7 @@ def one_line(ex):
 
 
 if __name__ == "__main__":
+    # big integers print whole (Python 3.11 limits them to 4300 digits)
+    if hasattr(sys, "set_int_max_str_digits"):
+        sys.set_int_max_str_digits(0)
     main()
