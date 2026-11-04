@@ -4,16 +4,43 @@ use std::io::Write;
 use std::path::Path;
 
 use serde_json::Value;
+use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver as _};
+use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 
 /// The production site, the default of `--site`.
 pub const SITE: &str = "https://math.osp.no";
 
+/// Names under `localhost` (RFC 6761) are the machine itself, as
+/// `math.localhost`, the site's copy in development, which the system's
+/// resolver may not know.
+#[derive(Debug, Default)]
+struct Resolver(DefaultResolver);
+
+impl ureq::unversioned::resolver::Resolver for Resolver {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: NextTimeout,
+    ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+        let host = uri.host().unwrap_or("");
+        if host == "localhost" || host.ends_with(".localhost") {
+            let https = uri.scheme_str() == Some("https");
+            let port = uri.port_u16().unwrap_or(if https { 443 } else { 80 });
+            let mut addrs = self.empty();
+            addrs.push(std::net::SocketAddr::from(([127, 0, 0, 1], port)));
+            return Ok(addrs);
+        }
+        self.0.resolve(uri, config, timeout)
+    }
+}
+
 fn agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
+    let config = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .user_agent(concat!("math-run/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .into()
+        .build();
+    ureq::Agent::with_parts(config, DefaultConnector::default(), Resolver::default())
 }
 
 pub fn get_json(url: &str) -> Result<Value, String> {
