@@ -155,6 +155,10 @@ fn run(
             HashSet::new(),
         ),
     };
+    if !done.is_empty() && todo.iter().all(|p| done.contains(&p.id)) {
+        eprintln!("every problem is answered: nothing to resume");
+        return Ok(());
+    }
     if !done.is_empty() {
         let n = header["resumed"].as_u64().unwrap_or(0) + 1;
         header["resumed"] = json!(n);

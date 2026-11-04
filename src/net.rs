@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::Path;
 
 use serde_json::Value;
-use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver as _};
+use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs};
 use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 
 /// The production site, the default of `--site`.
