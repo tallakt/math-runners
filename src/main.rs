@@ -72,7 +72,7 @@ enum Cmd {
         #[command(flatten)]
         suite: SuiteArgs,
         /// The seconds each problem has.
-        #[arg(long, default_value_t = 60.0)]
+        #[arg(long, default_value_t = 30.0)]
         timeout: f64,
         /// Problems at a time, each in a session of its own. The reference
         /// runs use 1, for fixed timing.

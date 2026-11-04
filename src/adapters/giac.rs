@@ -119,11 +119,10 @@ impl Dialect for D {
             ("hypergeometric", 3) => f("hyper"),
             ("legendre_p", 2) => f("legendre"),
             ("hermite_h", 2) => f("hermite"),
-            ("laguerre_l", 2) => Ok(format!("laguerre({}, 0, {})", a[0], a[1])),
+            // laguerre(n, x, a) is the generalized one, a = 0 when left out
+            ("laguerre_l", 2) => f("laguerre"),
             ("chebyshev_t", 2) => f("tchebyshev1"),
             ("chebyshev_u", 2) => f("tchebyshev2"),
-            ("gegenbauer_c", 3) => f("gegenbauer"),
-            ("jacobi_p", 4) => f("jacobi"),
             ("heaviside", 1) => f("Heaviside"),
             ("dirac_delta", 1) => f("Dirac"),
             _ => unsupported(format!("Giac has no {name} of {n} arguments")),
