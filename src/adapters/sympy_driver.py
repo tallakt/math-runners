@@ -71,9 +71,13 @@ def main():
         sys.stdout.flush()
         task = compile(req["task"], "<task>", "exec")
         cpu0, wall0 = time.process_time(), time.perf_counter()
+        declined = None
         try:
             exec(task, ns)
             ok = True
+        except NotImplementedError as ex:
+            ok = False
+            declined = decline(ex)
         except Exception as ex:
             ok = False
             error = "%s: %s" % (type(ex).__name__, one_line(ex))
@@ -83,15 +87,35 @@ def main():
             try:
                 # a matrix prints on several lines, which read back as one
                 text = str(eval(compile(req["answer"], "<answer>", "eval"), ns)).replace("\n", "")
-                say("@@MR-ANSWER " + nonce)
-                say(text)
-                say("@@MR-ANSWER-END " + nonce)
+            except NotImplementedError as ex:
+                text = decline(ex)
             except Exception as ex:
+                text = None
                 say("@@MR-ERROR the answer could not be printed: %s: %s" % (type(ex).__name__, one_line(ex)))
+            if text is not None:
+                answer(nonce, text)
+        elif declined is not None:
+            answer(nonce, declined)
         else:
             say("@@MR-ERROR " + error)
         say("@@MR-END " + nonce)
         sys.stdout.flush()
+
+
+def answer(nonce, text):
+    say("@@MR-ANSWER " + nonce)
+    say(text)
+    say("@@MR-ANSWER-END " + nonce)
+
+
+def decline(ex):
+    # SymPy's NotImplementedError (and its subclasses) is its way of saying it
+    # cannot do the problem: a decline, written as an answer that the
+    # checker's SymPy dialect grades unsolved, NotImplementedError("message")
+    why = one_line(ex)
+    if type(ex) is not NotImplementedError:
+        why = "%s: %s" % (type(ex).__name__, why)
+    return "NotImplementedError(%s)" % json.dumps(why, ensure_ascii=False)
 
 
 def one_line(ex):

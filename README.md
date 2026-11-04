@@ -113,8 +113,19 @@ of the library too: a problem's time in Maple includes reading the library's pro
 ### The status of each problem
 
 - `ok`: the system returned. The answer is what it returned, in its own input syntax, as the
-  table below says; also where it returned the problem unevaluated (the site's checker grades that
-  as unsolved).
+  table below says; also where it returned the problem unevaluated, or declined it (the site's
+  checker grades both as unsolved, section 7.4 of the formats). A decline is the system's own way
+  of saying that it cannot do the problem, written as an answer:
+  - **SymPy**: a `NotImplementedError` (or a subclass of it), written `NotImplementedError("its
+    message")`, a subclass's name before the message; any other exception is `error`.
+  - **Maxima**: the problem returned as a noun (`'integrate(...)`), or `false` (as from `ode2`),
+    written as they are.
+  - **FriCAS**: `"failed"` or `"potentialPole"` of a definite integral, written so; an integral it
+    cannot do otherwise comes back as `integral(...)`.
+  - **Giac**: the problem returned unevaluated (`integrate(...)`, `desolve(...)`); what Giac
+    prints as an error stays `error`.
+  - **Maple**: `FAIL`, and the unevaluated `int(...)`, `DESol(...)`.
+  - **Mathematica**: `$Failed`, and the unevaluated `Integrate[...]`, `DSolve[...]`.
 - `timeout`: it ran out of time.
 - `error`: it failed (its message), asked for input, or printed an answer over 1 MB.
 - `unsupported`: the runner has no way to give the system this problem: the system has no command
@@ -197,7 +208,8 @@ The commands, and the part of the result that is written where it is not the who
 ### SymPy
 
 The runner writes Python code for SymPy, which a small driver (`src/adapters/sympy_driver.py`) runs
-in a fresh namespace; the answer is `str(result)` (a matrix printed on one line).
+in a fresh namespace; the answer is `str(result)` (a matrix printed on one line), and a
+`NotImplementedError` the decline `NotImplementedError("...")` (above).
 
 | op | command | written |
 |---|---|---|
@@ -345,7 +357,7 @@ A symbol with `_` is written with `$` (`a_1` as `a$1`), and the single capitals 
 ## Tests
 
 `cargo test` tests the parser, the printer, the sessions and the dates. `tests/suite/suite.jsonl`
-is a small suite of 76 problems, every op and category of the formats, in the suite's format:
+is a small suite of 82 problems, every op and category of the formats, in the suite's format:
 
 ```
 math-run run -s maxima --suite tests/suite/suite.jsonl --timeout 30 -o /tmp/maxima-test.jsonl
