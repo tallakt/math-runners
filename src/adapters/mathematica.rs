@@ -382,6 +382,26 @@ fn build(p: &Problem) -> Result<String, Unsupported> {
                 vars.join(", ")
             )
         }
+        // whether the relation holds for every real value its assumptions allow: Resolve of
+        // ForAll, True or False
+        "holds" => {
+            let vars: Vec<String> = p.symbols("vars")?.iter().map(|v| ident(v)).collect();
+            format!(
+                "Resolve[ForAll[{{{}}}, {assumptions}, {}], Reals]",
+                vars.join(", "),
+                arg("relation")?
+            )
+        }
+        "matrix_power" => format!(
+            "Simplify[MatrixPower[{}, {}], {opt}]",
+            arg("matrix")?,
+            arg("power")?
+        ),
+        "determinant" if p.has("power") => format!(
+            "Simplify[Det[MatrixPower[{}, {}]], {opt}]",
+            arg("matrix")?,
+            arg("power")?
+        ),
         "determinant" | "inverse" | "rank" | "nullspace" | "eigenvalues" | "eigenvectors"
         | "jordan_form" | "solve_linear" => {
             let m = arg("matrix")?;

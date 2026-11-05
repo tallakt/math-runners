@@ -379,11 +379,36 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 p.symbols("vars")?.join(", ")
             )
         }
+        // whether the relation holds for every value: is, true, false or FAIL; its variables
+        // real
+        "holds" => {
+            for v in p.symbols("vars")? {
+                assume.push(format!("{}::real", pr.print(&Expr::Sym(v))?));
+            }
+            format!("is({})", arg("relation")?)
+        }
+        "matrix_power" => {
+            answer = listlist("mr_r");
+            format!(
+                "LinearAlgebra:-MatrixPower(Matrix({}), {})",
+                arg("matrix")?,
+                arg("power")?
+            )
+        }
         "determinant" | "inverse" | "rank" | "nullspace" | "eigenvalues" | "eigenvectors"
         | "jordan_form" | "solve_linear" => {
-            let m = format!("Matrix({})", arg("matrix")?);
             let la = "LinearAlgebra:-";
+            let m = if p.has("power") {
+                format!(
+                    "{la}MatrixPower(Matrix({}), {})",
+                    arg("matrix")?,
+                    arg("power")?
+                )
+            } else {
+                format!("Matrix({})", arg("matrix")?)
+            };
             match p.op.as_str() {
+                "determinant" if p.has("power") => format!("simplify({la}Determinant({m}))"),
                 "determinant" => format!("{la}Determinant({m})"),
                 "inverse" => {
                     answer = listlist("mr_r");

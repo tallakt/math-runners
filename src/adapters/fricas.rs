@@ -398,8 +398,15 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 list("polynomials")?
             )
         }
+        "holds" => return unsupported("FriCAS has no decision whether a relation holds"),
+        "matrix_power" => {
+            return unsupported("FriCAS has no power of a matrix to a symbolic exponent");
+        }
         "determinant" | "inverse" | "rank" | "nullspace" | "eigenvalues" | "eigenvectors"
         | "jordan_form" | "solve_linear" => {
+            if p.has("power") {
+                return unsupported("FriCAS has no power of a matrix to a symbolic exponent");
+            }
             let m = format!("matrix({})", arg("matrix")?);
             match p.op.as_str() {
                 "determinant" => format!("determinant({m})"),

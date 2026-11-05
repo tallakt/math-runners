@@ -268,7 +268,7 @@ fn build(p: &Problem) -> Result<Code, Unsupported> {
             }
         }
     }
-    if p.op == "solve" && p.real_domain()? {
+    if matches!(p.op.as_str(), "solve" | "holds") && p.real_domain()? {
         for v in p.symbols("vars")? {
             if let Some(e) = props.iter_mut().find(|e| e.0 == v) {
                 if e.1.is_empty() {
@@ -499,6 +499,37 @@ fn build(p: &Problem) -> Result<Code, Unsupported> {
                 vars.join(", ")
             )
         }
+        // whether the relation holds for every value: ask of the sides' difference, True, False
+        // or None
+        "holds" => {
+            let (rel, a, b) = match p.expr("relation")? {
+                Expr::Rel(r, a, b) => (r, a, b),
+                _ => return unsupported("the relation is not a relation"),
+            };
+            let q = match rel {
+                Rel::Ge => "nonnegative",
+                Rel::Gt => "positive",
+                Rel::Le => "nonpositive",
+                Rel::Lt => "negative",
+                Rel::Eq => "zero",
+                Rel::Ne => "nonzero",
+            };
+            format!(
+                "d_ = sp.simplify(({}) - ({}))\nresult = sp.ask(sp.Q.{q}(d_))",
+                pe(&a)?,
+                pe(&b)?
+            )
+        }
+        "matrix_power" => format!(
+            "result = sp.Matrix({})**({})",
+            arg("matrix")?,
+            arg("power")?
+        ),
+        "determinant" if p.has("power") => format!(
+            "result = sp.simplify((sp.Matrix({})**({})).det())",
+            arg("matrix")?,
+            arg("power")?
+        ),
         "determinant" | "inverse" | "rank" | "nullspace" | "eigenvalues" | "eigenvectors"
         | "jordan_form" | "solve_linear" => {
             let m = format!("sp.Matrix({})", arg("matrix")?);

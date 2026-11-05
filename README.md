@@ -232,6 +232,8 @@ in a fresh namespace; the answer is `str(result)` (a matrix printed on one line)
 | groebner | `groebner(ps, *vars, order=...)` | the list of polynomials |
 | minimal_polynomial | `minimal_polynomial(f, x)` | |
 | linear algebra | `Matrix(m).det()`, `.inv()`, `.rank()`, `.nullspace()`, `.eigenvals(multiple=True)`, `.eigenvects()`, `.jordan_form()`, `.gauss_jordan_solve(b)` | of `jordan_form`, J; of `solve_linear`, the solution vector, its parameters `tau0`, `tau1`, ... |
+| matrix_power | `Matrix(m)**n`; a determinant with `power`, `simplify((Matrix(m)**n).det())` | |
+| holds | `ask(Q.nonnegative(simplify(a - b)))` of `a >= b` (`positive`, `nonpositive`, `negative`, `zero`, `nonzero` of the other relations), the variables real | `True`, `False`, or `None`, a decline |
 
 ### Maxima
 
@@ -257,6 +259,8 @@ The answer is `string(result)`, with `display2d: false`.
 | groebner | `poly_reduced_grobner` with `poly_monomial_order` | |
 | minimal_polynomial | | `unsupported` |
 | linear algebra | `determinant`, `invert`, `rank`, `nullspace`, `eigenvalues`, `eigenvectors`, `dispJordan(jordan(m))`, `linsolve` | of `nullspace`, the basis vectors (`args` of its `span`); of `solve_linear`, the values (`map(rhs, ...)`), its parameters `%r1`, ... |
+| matrix_power | `mat_function(lambda([t], t^n), m)` (`diag`); a determinant with `power`, `ratsimp(determinant(...))` of it | |
+| holds | `is(a >= b)` with the assumptions, `is(equal(a, b))`, `is(notequal(a, b))` | `true`, `false`, or `unknown`, a decline |
 
 ### FriCAS
 
@@ -278,6 +282,7 @@ The answer is `unparse(result::InputForm)`.
 | groebner | `groebner` over `DMP` (lex) or `HDMP` (grevlex) | grlex: `unsupported` |
 | minimal_polynomial | | `unsupported` |
 | linear algebra | `determinant`, `inverse`, `rank`, `nullSpace`, `radicalEigenvalues`, `radicalEigenvectors`, `solve(m, v)` | eigenvectors as `[[value, multiplicity, [vectors]], ...]`; solve_linear as the vector `particular + t1 basis.1 + ...`; jordan_form: `unsupported` |
+| matrix_power, holds | | `unsupported`: no power of a symbolic exponent, no decision of a relation; nor a determinant with `power` |
 
 ### Giac
 
@@ -296,6 +301,8 @@ The answer is `string(result)`.
 | simplify, evaluate | `simplify` | hyperexpand: `unsupported` |
 | polynomials | `factor` (`cfactor`), `gcd`, `lcm`, `resultant`, `discriminant`, `partfrac`, `gbasis(ps, vars, plex/tdeg/revlex)`, `pmin(f, x)` | |
 | linear algebra | `det`, `inv`, `rank`, `ker`, `[eigenvals(m)]`, `[jordan(m)]`, `jordan`, `linsolve` | eigenvectors as `[P, J]`, the eigenvectors the columns of P, their values the diagonal of J (Giac's `eigenvects` gives P alone); of `jordan_form`, J |
+| matrix_power | `matpow(m, n)` (not run); a determinant with `power`, `simplify(det(matpow(m, n)))` | |
+| holds | | `unsupported` |
 
 Giac prints its prompts on its standard output and `print` on its standard error; the adapter
 starts it as `sh -c 'exec giac --sage 2>&1'`. Set `GIAC_THREADS=1` to keep it to one core.
@@ -317,6 +324,8 @@ assumptions are given with `assuming`. Matrices and vectors are written as lists
 | simplify, evaluate, hyperexpand | `simplify`, `simplify(value(f))`, `simplify(convert(f, StandardFunctions))` | |
 | polynomials | `factor` (`factor(f, I)`), `gcd`, `lcm`, `resultant`, `discrim`, `convert(f, parfrac, x)`, `Groebner:-Basis(ps, plex/grlex/tdeg(vars))`, `PolynomialTools:-MinimalPolynomial(f, x)` | |
 | linear algebra | `LinearAlgebra:-Determinant`, `MatrixInverse`, `Rank`, `NullSpace`, `Eigenvalues`, `Eigenvectors`, `JordanForm`, `LinearSolve` | matrices `convert(m, listlist)`; the null space a list of lists; eigenvectors `[values, the vectors as columns]` |
+| matrix_power | `LinearAlgebra:-MatrixPower(Matrix(m), n)`; a determinant with `power`, `simplify(Determinant(MatrixPower(...)))` | `convert(m, listlist)` |
+| holds | `is(a >= b) assuming ...`, the variables `::real` | `true`, `false`, or `FAIL` |
 
 Maple's elliptic integrals are of the modulus and the sine of the amplitude: `elliptic_k(m)` is
 written `EllipticK(sqrt(m))`, `elliptic_f(phi, m)` `EllipticF(sin(phi), sqrt(m))` (the same for
@@ -338,6 +347,8 @@ The answer is `ToString[result, InputForm, PageWidth -> Infinity]`; the version 
 | simplify, evaluate, hyperexpand | `FullSimplify[f, assumptions]`, `FunctionExpand` | |
 | polynomials | `Factor` (`GaussianIntegers -> True`), `PolynomialGCD`, `PolynomialLCM`, `Resultant`, `Discriminant`, `Apart`, `GroebnerBasis[..., MonomialOrder -> ...]`, `MinimalPolynomial[f, x]` | |
 | linear algebra | `Det`, `Inverse`, `MatrixRank`, `NullSpace`, `Eigenvalues`, `Eigensystem`, `JordanDecomposition[m][[2]]`, `Solve[m . v == b, v]` | of `solve_linear`, the vector `v` of unknowns `mrX[1], ...` solved, the free ones its parameters (`LinearSolve` gives one solution) |
+| matrix_power | `Simplify[MatrixPower[m, n], Assumptions -> ...]`; a determinant with `power`, `Simplify[Det[MatrixPower[m, n]], ...]` | |
+| holds | `Resolve[ForAll[{vars}, assumptions, a >= b], Reals]` | `True` or `False` |
 
 A symbol with `_` is written with `$` (`a_1` as `a$1`), and the single capitals Mathematica keeps
 (`C`, `D`, `E`, `I`, `K`, `N`, `O`) with `mr` before them.
@@ -357,7 +368,7 @@ A symbol with `_` is written with `$` (`a_1` as `a$1`), and the single capitals 
 ## Tests
 
 `cargo test` tests the parser, the printer, the sessions and the dates. `tests/suite/suite.jsonl`
-is a small suite of 82 problems, every op and category of the formats, in the suite's format:
+is a small suite of 86 problems, every op and category of the formats, in the suite's format:
 
 ```
 math-run run -s maxima --suite tests/suite/suite.jsonl --timeout 30 -o /tmp/maxima-test.jsonl

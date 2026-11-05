@@ -342,10 +342,18 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 p.symbols("vars")?.join(", ")
             )
         }
+        "holds" => return unsupported("Giac has no decision whether a relation holds"),
+        // a power of a symbolic exponent by the Jordan form
+        "matrix_power" => format!("matpow({}, {})", arg("matrix")?, arg("power")?),
         "determinant" | "inverse" | "rank" | "nullspace" | "eigenvalues" | "eigenvectors"
         | "jordan_form" | "solve_linear" => {
-            let m = arg("matrix")?;
+            let m = if p.has("power") {
+                format!("matpow({}, {})", arg("matrix")?, arg("power")?)
+            } else {
+                arg("matrix")?
+            };
             match p.op.as_str() {
+                "determinant" if p.has("power") => format!("simplify(det({m}))"),
                 "determinant" => format!("det({m})"),
                 "inverse" => format!("inv({m})"),
                 "rank" => format!("rank({m})"),

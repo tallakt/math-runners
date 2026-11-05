@@ -361,10 +361,33 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 p.symbols("vars")?.join(", ")
             )
         }
+        // whether the relation holds for every value: `is`, true, false or unknown
+        "holds" => match p.expr("relation")? {
+            Expr::Rel(Rel::Eq, a, b) => format!("is(equal({}, {}))", pe(&a)?, pe(&b)?),
+            Expr::Rel(Rel::Ne, a, b) => format!("is(notequal({}, {}))", pe(&a)?, pe(&b)?),
+            r => format!("is({})", pe(&r)?),
+        },
+        // a power of a symbolic exponent: diag's function of the matrix, t^n
+        "matrix_power" => {
+            pre.push("load(diag)".into());
+            format!(
+                "mat_function(lambda([mr_t], mr_t^({})), apply(matrix, {}))",
+                arg("power")?,
+                arg("matrix")?
+            )
+        }
         "determinant" | "inverse" | "rank" | "nullspace" | "eigenvalues" | "eigenvectors"
         | "jordan_form" | "solve_linear" => {
-            let m = format!("apply(matrix, {})", arg("matrix")?);
+            let mut m = format!("apply(matrix, {})", arg("matrix")?);
+            if p.has("power") {
+                pre.push("load(diag)".into());
+                m = format!(
+                    "mat_function(lambda([mr_t], mr_t^({})), {m})",
+                    arg("power")?
+                );
+            }
             match p.op.as_str() {
+                "determinant" if p.has("power") => format!("ratsimp(determinant({m}))"),
                 "determinant" => format!("determinant({m})"),
                 "inverse" => format!("invert({m})"),
                 "rank" => format!("rank({m})"),
