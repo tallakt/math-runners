@@ -186,7 +186,8 @@ impl Dialect for D {
     }
 }
 
-fn build(p: &Problem) -> Result<String, Unsupported> {
+/// The problem as a Wolfram Language expression, also Mathilda's.
+pub(crate) fn build(p: &Problem) -> Result<String, Unsupported> {
     let funcs = p.unknown_functions()?;
     let d = D {
         funcs: funcs.clone(),
@@ -428,6 +429,38 @@ fn build(p: &Problem) -> Result<String, Unsupported> {
     Ok(task)
 }
 
+/// What to send first, in the Wolfram Language: the solvers loaded, untimed,
+/// then the version and the ready line.
+pub(crate) fn start_text(nonce: &str) -> String {
+    // the first use of each solver loads it: done here, untimed
+    format!(
+        "$HistoryLength = 0; Off[General::stop];\n\
+         mrWarm = {{Integrate[x Sin[x], x], Integrate[Exp[-x], {{x, 0, Infinity}}], \
+         DSolve[y'[x] == y[x], y[x], x], Limit[Sin[x]/x, x -> 0], Series[Exp[x], {{x, 0, 2}}], \
+         Sum[1/n^2, {{n, 1, Infinity}}], Solve[x^2 == 1, x], FullSimplify[Sin[x]^2 + Cos[x]^2], \
+         LaplaceTransform[Exp[t], t, s], RSolve[a[n + 1] == 2 a[n], a[n], n]}};\n\
+         ClearAll[\"Global`*\"]; ClearSystemCache[];\n\
+         WriteString[\"stdout\", \"\\n@@MR-VERSION \", $Version, \"\\n@@MR-READY \", {}, \"\\n\"];\n",
+        quoted(nonce)
+    )
+}
+
+/// One problem, in the Wolfram Language, with the state reset first.
+pub(crate) fn problem_text(p: &Problem, nonce: &str) -> Result<String, Unsupported> {
+    let task = build(p)?;
+    let n = quoted(nonce);
+    Ok(format!(
+        "ClearAll[\"Global`*\"]; ClearSystemCache[];\n\
+         {}\n\
+         mrC0 = TimeUsed[]; mrW0 = AbsoluteTime[]; mrR = {task}; mrC1 = TimeUsed[]; mrW1 = AbsoluteTime[];\n\
+         WriteString[\"stdout\", \"\\n@@MR-TIME \", ToString[NumberForm[mrC1 - mrC0, {{12, 6}}]], \" \", ToString[NumberForm[mrW1 - mrW0, {{12, 6}}]], \"\\n\"];\n\
+         WriteString[\"stdout\", \"\\n@@MR-ANSWER \", {n}, \"\\n\", ToString[mrR, InputForm, PageWidth -> Infinity], \"\\n@@MR-ANSWER-END \", {n}, \"\\n\"];\n\
+         {}\n",
+        say(&format!("@@MR-BEGIN {nonce}")),
+        say(&format!("@@MR-END {nonce}"))
+    ))
+}
+
 fn say(text: &str) -> String {
     format!("WriteString[\"stdout\", \"\\n{text}\\n\"];")
 }
@@ -455,32 +488,11 @@ impl Adapter for Mathematica {
     }
 
     fn start(&self, nonce: &str) -> String {
-        // the first use of each solver loads it: done here, untimed
-        format!(
-            "$HistoryLength = 0; Off[General::stop];\n\
-             mrWarm = {{Integrate[x Sin[x], x], Integrate[Exp[-x], {{x, 0, Infinity}}], \
-             DSolve[y'[x] == y[x], y[x], x], Limit[Sin[x]/x, x -> 0], Series[Exp[x], {{x, 0, 2}}], \
-             Sum[1/n^2, {{n, 1, Infinity}}], Solve[x^2 == 1, x], FullSimplify[Sin[x]^2 + Cos[x]^2], \
-             LaplaceTransform[Exp[t], t, s], RSolve[a[n + 1] == 2 a[n], a[n], n]}};\n\
-             ClearAll[\"Global`*\"]; ClearSystemCache[];\n\
-             WriteString[\"stdout\", \"\\n@@MR-VERSION \", $Version, \"\\n@@MR-READY \", {}, \"\\n\"];\n",
-            quoted(nonce)
-        )
+        start_text(nonce)
     }
 
     fn problem(&self, p: &Problem, nonce: &str) -> Result<String, Unsupported> {
-        let task = build(p)?;
-        let n = quoted(nonce);
-        Ok(format!(
-            "ClearAll[\"Global`*\"]; ClearSystemCache[];\n\
-             {}\n\
-             mrC0 = TimeUsed[]; mrW0 = AbsoluteTime[]; mrR = {task}; mrC1 = TimeUsed[]; mrW1 = AbsoluteTime[];\n\
-             WriteString[\"stdout\", \"\\n@@MR-TIME \", ToString[NumberForm[mrC1 - mrC0, {{12, 6}}]], \" \", ToString[NumberForm[mrW1 - mrW0, {{12, 6}}]], \"\\n\"];\n\
-             WriteString[\"stdout\", \"\\n@@MR-ANSWER \", {n}, \"\\n\", ToString[mrR, InputForm, PageWidth -> Infinity], \"\\n@@MR-ANSWER-END \", {n}, \"\\n\"];\n\
-             {}\n",
-            say(&format!("@@MR-BEGIN {nonce}")),
-            say(&format!("@@MR-END {nonce}"))
-        ))
+        problem_text(p, nonce)
     }
 
     fn goodbye(&self) -> &'static str {

@@ -26,6 +26,7 @@ pub mod fricas;
 pub mod giac;
 pub mod maple;
 pub mod mathematica;
+pub mod mathilda;
 pub mod maxima;
 pub mod sympy;
 
@@ -84,6 +85,7 @@ pub fn all() -> Vec<Box<dyn Adapter>> {
         Box::new(giac::Giac),
         Box::new(maple::Maple),
         Box::new(mathematica::Mathematica),
+        Box::new(mathilda::Mathilda),
     ]
 }
 

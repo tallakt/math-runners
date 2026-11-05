@@ -15,6 +15,7 @@ One binary has an adapter for each system:
 | Giac | `giac` | `giac` (or `icas`) | Giac 1.9.0.93 (Debian trixie), Linux |
 | Maple | `maple` | `maple` | **not run**: written from the documentation, see below |
 | Mathematica | `mathematica` | `wolfram` (or `math`, `WolframKernel`) | **not run**: written from the documentation |
+| Mathilda | `mathilda` | `Mathilda` | **not run**: the Mathematica adapter's problems, from Mathilda's user documentation |
 
 ## Install
 
@@ -331,6 +332,13 @@ Maple's elliptic integrals are of the modulus and the sine of the amplitude: `el
 written `EllipticK(sqrt(m))`, `elliptic_f(phi, m)` `EllipticF(sin(phi), sqrt(m))` (the same for
 `-pi/2 <= re(phi) <= pi/2`). The version is `kernelopts(version)`, as
 `Maple 2023.0, APPLE ARM64 MACOS, Mar 06 2023, Build ID 1689885`.
+
+### Mathilda (untested)
+
+Mathilda (github.com/stblake/mathilda) is Sam Blake's open-source system in the Wolfram Language.
+The runner sends it the Mathematica adapter's problems (below), the same commands, to one session
+of `Mathilda` from a pipe. Its answers are Mathematica's `InputForm`, which the checker reads as
+Mathematica's. The adapter is written from Mathilda's user documentation, not from its source.
 
 ### Mathematica (untested)
 

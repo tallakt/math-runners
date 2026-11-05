@@ -37,11 +37,11 @@ struct Cli {
 
 #[derive(clap::Args, Clone)]
 struct SystemArgs {
-    /// The system: sympy, maxima, fricas, giac, maple or mathematica.
+    /// The system: sympy, maxima, fricas, giac, maple, mathematica or mathilda.
     #[arg(long, short)]
     system: String,
     /// The program that starts it, where it is not the usual one on the
-    /// PATH (python3, maxima, fricas, giac, maple, wolfram).
+    /// PATH (python3, maxima, fricas, giac, maple, wolfram, Mathilda).
     #[arg(long)]
     command: Option<String>,
 }
