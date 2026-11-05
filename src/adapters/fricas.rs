@@ -245,8 +245,14 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                     values[c.order] = Some(pe(&c.value)?);
                 }
                 let values: Vec<String> = values.into_iter().map(|v| v.unwrap()).collect();
+                // explicit, `y(x) = f`, or of a nonlinear ODE implicit: `G` in `y(x)` whose
+                // zeros are the solution (the first integral less its value at the point)
                 answers = vec![
-                    format!("unparse(equation({y}({x}), mrunR :: {EXPR})::InputForm)"),
+                    format!(
+                        "(mrunE := mrunR :: {EXPR}; if freeOf?(mrunE, {y}({x})) then \
+                         unparse(equation({y}({x}), mrunE)::InputForm) else \
+                         unparse(equation(mrunE, 0)::InputForm))"
+                    ),
                     plain,
                 ];
                 format!("solve({eq}, {y}, {x} = {at}, [{}])", values.join(", "))
