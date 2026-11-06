@@ -12,6 +12,41 @@ pub struct Machine {
     /// The hardware threads, where they are more than the cores.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threads: Option<usize>,
+    /// The machine's id, the same on every run of this machine: see `id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// The machine's id: the first 16 hex digits of the SHA-256 of
+/// `math.osp.no machine <raw>`, where raw is the operating system's own id
+/// of the machine, macOS's IOPlatformUUID or Linux's /etc/machine-id. Only
+/// the hash leaves the machine. None where there is no such id, or where
+/// `MATH_RUN_NO_MACHINE_ID` is set (to anything but empty or `0`).
+pub fn id() -> Option<String> {
+    use sha2::{Digest, Sha256};
+    if std::env::var("MATH_RUN_NO_MACHINE_ID").is_ok_and(|v| !v.is_empty() && v != "0") {
+        return None;
+    }
+    let raw = raw_id()?;
+    let hash = Sha256::digest(format!("math.osp.no machine {raw}").as_bytes());
+    Some(hash.iter().take(8).map(|b| format!("{b:02x}")).collect())
+}
+
+fn raw_id() -> Option<String> {
+    let raw = if cfg!(target_os = "macos") {
+        let out = std::process::Command::new("ioreg")
+            .args(["-rd1", "-c", "IOPlatformExpertDevice"])
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .find(|l| l.contains("\"IOPlatformUUID\""))
+            .and_then(|l| l.rsplit('"').nth(1).map(str::to_string))?
+    } else {
+        std::fs::read_to_string("/etc/machine-id").ok()?
+    };
+    let raw = raw.trim().to_string();
+    (!raw.is_empty()).then_some(raw)
 }
 
 /// `Linux 6.8.0 x86_64`, from uname.
@@ -72,6 +107,7 @@ pub fn detect() -> Machine {
         cores,
         memory_gb: memory.map(|b| (b as f64 / (1u64 << 30) as f64).round() as u64),
         threads: (threads > cores).then_some(threads),
+        id: id(),
     }
 }
 

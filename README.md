@@ -169,6 +169,13 @@ model, the cores (physical; `threads` as well where there are more), the memory 
 operating system. Besides the formats' fields it has `jobs`, and `resumed` where the run was
 resumed.
 
+The machine's `id` is a salted hash, the first 16 hex digits of the SHA-256 of `math.osp.no machine `
+and the operating system's own id of the machine (macOS's IOPlatformUUID, Linux's
+`/etc/machine-id`): the raw id does not leave the machine. The site uses it only to tell that two
+runs were made on the same machine, as for the speed estimate of a system whose runs are all on
+one machine. Set `MATH_RUN_NO_MACHINE_ID=1` to leave it out; the site then matches the runs by
+their CPU, cores, threads and memory.
+
 Each problem's line is section 5.2's: `id`, `status`, `answer` (with `ok`), `wall` and `cpu` (in
 seconds), and `message` (with `error` and `unsupported`).
 
