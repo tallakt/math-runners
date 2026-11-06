@@ -445,19 +445,40 @@ pub(crate) fn start_text(nonce: &str) -> String {
     )
 }
 
-/// One problem, in the Wolfram Language, with the state reset first.
-pub(crate) fn problem_text(p: &Problem, nonce: &str) -> Result<String, Unsupported> {
+/// One problem in the Wolfram Language, in its parts: the reset, the begin
+/// line, the work (the timed task, then the time and the answer printed, three
+/// statements), and the end line.
+pub(crate) struct Parts {
+    pub reset: String,
+    pub begin: String,
+    pub work: Vec<String>,
+    pub end: String,
+}
+
+pub(crate) fn problem_parts(p: &Problem, nonce: &str) -> Result<Parts, Unsupported> {
     let task = build(p)?;
     let n = quoted(nonce);
+    Ok(Parts {
+        reset: "ClearAll[\"Global`*\"]; ClearSystemCache[];".into(),
+        begin: say(&format!("@@MR-BEGIN {nonce}")),
+        work: vec![
+            format!("mrC0 = TimeUsed[]; mrW0 = AbsoluteTime[]; mrR = {task}; mrC1 = TimeUsed[]; mrW1 = AbsoluteTime[];"),
+            "WriteString[\"stdout\", \"\\n@@MR-TIME \", ToString[NumberForm[mrC1 - mrC0, {12, 6}]], \" \", ToString[NumberForm[mrW1 - mrW0, {12, 6}]], \"\\n\"];".into(),
+            format!("WriteString[\"stdout\", \"\\n@@MR-ANSWER \", {n}, \"\\n\", ToString[mrR, InputForm, PageWidth -> Infinity], \"\\n@@MR-ANSWER-END \", {n}, \"\\n\"];"),
+        ],
+        end: say(&format!("@@MR-END {nonce}")),
+    })
+}
+
+/// One problem, in the Wolfram Language, with the state reset first.
+pub(crate) fn problem_text(p: &Problem, nonce: &str) -> Result<String, Unsupported> {
+    let t = problem_parts(p, nonce)?;
     Ok(format!(
-        "ClearAll[\"Global`*\"]; ClearSystemCache[];\n\
-         {}\n\
-         mrC0 = TimeUsed[]; mrW0 = AbsoluteTime[]; mrR = {task}; mrC1 = TimeUsed[]; mrW1 = AbsoluteTime[];\n\
-         WriteString[\"stdout\", \"\\n@@MR-TIME \", ToString[NumberForm[mrC1 - mrC0, {{12, 6}}]], \" \", ToString[NumberForm[mrW1 - mrW0, {{12, 6}}]], \"\\n\"];\n\
-         WriteString[\"stdout\", \"\\n@@MR-ANSWER \", {n}, \"\\n\", ToString[mrR, InputForm, PageWidth -> Infinity], \"\\n@@MR-ANSWER-END \", {n}, \"\\n\"];\n\
-         {}\n",
-        say(&format!("@@MR-BEGIN {nonce}")),
-        say(&format!("@@MR-END {nonce}"))
+        "{}\n{}\n{}\n{}\n",
+        t.reset,
+        t.begin,
+        t.work.join("\n"),
+        t.end
     ))
 }
 
