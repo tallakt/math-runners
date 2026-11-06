@@ -123,8 +123,9 @@ fn release(only: &[&str]) -> Result<(), String> {
         std::fs::create_dir_all(&stage).map_err(|e| e.to_string())?;
         std::fs::copy(&binary, stage.join("math-run"))
             .map_err(|e| format!("{}: {e}", binary.display()))?;
-        std::fs::copy(root.join("README.md"), stage.join("README.md"))
-            .map_err(|e| e.to_string())?;
+        for file in ["README.md", "LICENSE"] {
+            std::fs::copy(root.join(file), stage.join(file)).map_err(|e| e.to_string())?;
+        }
         let archive = format!("{stem}.tar.gz");
         run(Command::new("tar")
             .current_dir(&dist)

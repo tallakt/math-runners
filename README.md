@@ -10,8 +10,8 @@ One binary has an adapter for each system:
 | system | `--system` | program it starts | tested with |
 |---|---|---|---|
 | SymPy | `sympy` | `python3` (with SymPy installed) | SymPy 1.14.0, Python 3.13, macOS |
-| Maxima | `maxima` | `maxima` | Maxima 5.50.0 (SBCL), macOS |
-| FriCAS | `fricas` | `fricas` | FriCAS 1.4.0 (SBCL), macOS |
+| Maxima | `maxima` | `maxima` | Maxima 5.50.0 (SBCL), macOS; Maxima 5.47.0 (GCL, Debian trixie), Linux |
+| FriCAS | `fricas` | `fricas` | FriCAS 1.4.0 (SBCL), macOS; FriCAS 1.3.11 (GCL, Debian trixie), Linux |
 | Giac | `giac` | `giac` (or `icas`) | Giac 1.9.0.93 (Debian trixie), Linux |
 | Maple | `maple` | `maple` | **not run**: written from the documentation, see below |
 | Mathematica | `mathematica` | `wolfram` (or `math`, `WolframKernel`) | **not run**: written from the documentation |
@@ -388,10 +388,10 @@ math-run run -s maxima --suite tests/suite/suite.jsonl --timeout 30 -o /tmp/maxi
 ## Release
 
 `cargo xtask release` builds the binaries for Linux x86_64, Linux aarch64 (static, musl) and macOS
-arm64 into `dist/`, each a `tar.gz` with this README, and `SHA256SUMS`. The Linux binaries are
+arm64 into `dist/`, each a `tar.gz` with this README and the licence, and `SHA256SUMS`. The Linux binaries are
 cross-compiled with `cargo-zigbuild` (`cargo install cargo-zigbuild`, and zig on the `PATH`); the
 macOS one is built on an Apple silicon Mac.
 
 ## Licence
 
-None is chosen yet.
+Apache License 2.0, see `LICENSE`.
