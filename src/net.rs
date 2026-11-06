@@ -70,8 +70,17 @@ pub fn download(url: &str, to: &Path) -> Result<(), String> {
 
 /// Upload a run file, gzipped on the way unless it is: `POST /api/runs`.
 /// Returns the status and the site's answer.
-pub fn upload(site: &str, token: &str, path: &Path) -> Result<(u16, Value), String> {
+pub fn upload(
+    site: &str,
+    token: &str,
+    path: &Path,
+    note: Option<&str>,
+) -> Result<(u16, Value), String> {
     let raw = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let raw = match note {
+        Some(note) => with_note(&raw, note)?,
+        None => raw,
+    };
     let body = if raw.starts_with(&[0x1f, 0x8b]) {
         raw
     } else {
@@ -98,6 +107,30 @@ pub fn upload(site: &str, token: &str, path: &Path) -> Result<(u16, Value), Stri
     Ok((status, v))
 }
 
+/// The run file with `note` as its header's note (none where it is empty),
+/// plain JSON lines.
+pub fn with_note(raw: &[u8], note: &str) -> Result<Vec<u8>, String> {
+    let text = if raw.starts_with(&[0x1f, 0x8b]) {
+        let mut s = String::new();
+        std::io::Read::read_to_string(&mut flate2::read::MultiGzDecoder::new(raw), &mut s)
+            .map_err(|e| format!("the run file: {e}"))?;
+        s
+    } else {
+        String::from_utf8(raw.to_vec()).map_err(|_| "the run file is not UTF-8".to_string())?
+    };
+    let (first, rest) = text.split_once('\n').unwrap_or((&text, ""));
+    let mut header: Value =
+        serde_json::from_str(first).map_err(|e| format!("the run file's header: {e}"))?;
+    let obj = header
+        .as_object_mut()
+        .ok_or("the run file's header is not a JSON object")?;
+    match note.trim() {
+        "" => obj.remove("note"),
+        n => obj.insert("note".into(), Value::String(n.to_string())),
+    };
+    Ok(format!("{header}\n{rest}").into_bytes())
+}
+
 /// A run's status: `GET /api/runs/<run>`.
 pub fn status(site: &str, token: &str, run: &str) -> Result<(u16, Value), String> {
     let url = format!("{}/api/runs/{run}", site.trim_end_matches('/'));
@@ -112,4 +145,24 @@ pub fn status(site: &str, token: &str, run: &str) -> Result<(u16, Value), String
         status,
         serde_json::from_str(&text).unwrap_or(Value::String(text)),
     ))
+}
+
+#[cfg(test)]
+mod note_tests {
+    use super::with_note;
+    use std::io::Write;
+
+    #[test]
+    fn sets_and_removes_the_note() {
+        let plain = b"{\"format\":\"math-upload/1\",\"note\":\"old\"}\n{\"id\":\"a\"}\n";
+        let out = String::from_utf8(with_note(plain, " Six at a time. ").unwrap()).unwrap();
+        assert_eq!(
+            out,
+            "{\"format\":\"math-upload/1\",\"note\":\"Six at a time.\"}\n{\"id\":\"a\"}\n"
+        );
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gz.write_all(plain).unwrap();
+        let out = String::from_utf8(with_note(&gz.finish().unwrap(), "").unwrap()).unwrap();
+        assert_eq!(out, "{\"format\":\"math-upload/1\"}\n{\"id\":\"a\"}\n");
+    }
 }

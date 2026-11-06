@@ -35,6 +35,9 @@ pub struct Options {
     /// missing.
     pub only: Option<Vec<String>>,
     pub limit: Option<usize>,
+    /// Free text on how the run was made, for the header's `note`.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 fn state_path(out: &Path) -> PathBuf {
@@ -257,7 +260,7 @@ fn header(suite: &Suite, o: &Options, adapter: &dyn Adapter, version: &str) -> V
     } else {
         json!(o.timeout)
     };
-    json!({
+    let mut h = json!({
         "format": "math-upload/1",
         "suite": suite.version,
         "suite_sha256": suite.sha256,
@@ -269,7 +272,11 @@ fn header(suite: &Suite, o: &Options, adapter: &dyn Adapter, version: &str) -> V
         "timeout": timeout,
         "started": now_iso(),
         "jobs": o.jobs,
-    })
+    });
+    if let Some(note) = o.note.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        h["note"] = json!(note);
+    }
+    h
 }
 
 fn check_resume(

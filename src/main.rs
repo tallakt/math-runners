@@ -93,6 +93,10 @@ enum Cmd {
         /// Print what the system prints for each problem.
         #[arg(long, short)]
         verbose: bool,
+        /// A note on how the run was made, where the header does not say
+        /// (at most 2000 bytes): the run's page on the site shows it.
+        #[arg(long)]
+        note: Option<String>,
     },
     /// Resume an interrupted run.
     Resume {
@@ -108,6 +112,10 @@ enum Cmd {
         token: String,
         #[arg(long, default_value = net::SITE)]
         site: String,
+        /// Set the run's note in the header before uploading (the file is
+        /// not changed).
+        #[arg(long)]
+        note: Option<String>,
     },
     /// The status of an uploaded run: GET /api/runs/<run>.
     Status {
@@ -201,6 +209,7 @@ fn real_main(cli: Cli) -> Result<(), String> {
             only,
             limit,
             verbose,
+            note,
         } => {
             let (a, command) = adapter(&system)?;
             if !["full", "quick"].contains(&suite.subset.as_str()) {
@@ -224,6 +233,7 @@ fn real_main(cli: Cli) -> Result<(), String> {
                 site: suite.site.clone(),
                 only,
                 limit,
+                note,
             };
             let out = out.unwrap_or_else(|| {
                 PathBuf::from(format!(
@@ -236,8 +246,13 @@ fn real_main(cli: Cli) -> Result<(), String> {
             runner::start(o, &out, verbose)
         }
         Cmd::Resume { file, verbose } => runner::resume(&file, verbose),
-        Cmd::Upload { file, token, site } => {
-            let (status, v) = net::upload(&site, &token, &file)?;
+        Cmd::Upload {
+            file,
+            token,
+            site,
+            note,
+        } => {
+            let (status, v) = net::upload(&site, &token, &file, note.as_deref())?;
             println!("{}", serde_json::to_string_pretty(&v).unwrap());
             if status == 202 {
                 Ok(())

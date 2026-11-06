@@ -70,6 +70,7 @@ The options:
 | `--site` | the site | `https://math.osp.no` |
 | `--only`, `--limit` | some problems only, for tests | |
 | `--verbose`, `-v` | print what the system prints | |
+| `--note` | free text on how the run was made, at most 2000 bytes, for the header's `note`: the run's page shows it | |
 
 **Timing.** The reference runs of the site are made on a bare-metal server, one problem at a
 time. Keep `--jobs 1` for runs whose times are to be compared: problems run side by side share the
@@ -158,6 +159,8 @@ math-run status r-k3j9x2m4q8
 `upload` gzips the file and posts it to `POST /api/runs` (`--site` for another site, as a local
 copy of it: `--site http://math.localhost:4000`). The site checks the whole file before it answers,
 and then grades it in the background; `status` tells how far it is, and the totals once graded.
+`upload --note "..."` sends the run with that note in its header (an empty one removes it), and
+leaves the file as it is; the uploader can change the note later on the run's page.
 
 ## The run file
 
