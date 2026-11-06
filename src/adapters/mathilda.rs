@@ -103,11 +103,12 @@ impl Adapter for Mathilda {
             .to_string()
     }
 
-    /// `Mathilda 0.6222 (GCC 14.2.0, GMP 6.3.0, ...)`: the version and its
-    /// libraries, without the name.
+    /// `Mathilda 0.6222 (GCC 14.2.0, GMP 6.3.0, ...)`: the version only,
+    /// `0.6222`, without the name and the libraries it was built with.
     fn clean_version(&self, text: &str) -> String {
         let t = text.trim();
-        t.strip_prefix("Mathilda ").unwrap_or(t).to_string()
+        let t = t.strip_prefix("Mathilda ").unwrap_or(t);
+        t.split_whitespace().next().unwrap_or(t).to_string()
     }
 
     fn tested(&self) -> bool {
@@ -132,7 +133,7 @@ mod tests {
         );
         assert_eq!(
             Mathilda.clean_version("Mathilda 0.6222 (GCC 14.2.0, GMP 6.3.0)"),
-            "0.6222 (GCC 14.2.0, GMP 6.3.0)"
+            "0.6222"
         );
     }
 }
