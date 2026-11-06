@@ -523,6 +523,9 @@ impl Adapter for Maxima {
     }
 
     fn start(&self, nonce: &str) -> String {
+        // The wall clock is `mr_now`, in seconds: GCL's gettimeofday, to the
+        // microsecond, where `elapsed_real_time` has GCL's 100 ticks a
+        // second; another Lisp's real time where it is not GCL.
         // Maxima loads some of itself at the first use of a command: done
         // here, so that it is not timed as the first problem's. (What is
         // Maxima code, `kill(all)` unloads again: those are loaded before
@@ -536,6 +539,7 @@ impl Adapter for Maxima {
              ode2('diff(y, x) = y, y, x), poly_discriminant(x^2 + 1, x), partfrac(1/(x^2 - 1), x), \
              rank(matrix([1, 2], [2, 4])), bessel_j(1/2, x), gamma_incomplete(1, x))$\n\
              kill(all)$ reset()$ display2d: false$ linel: 1000000$\n\
+             :lisp (defun $mr_now () #+gcl (si::gettimeofday) #-gcl (/ (get-internal-real-time) (float internal-time-units-per-second 1d0)))\n\
              printf(true, \"~%@@MR-VERSION ~a~%@@MR-READY ~a~%\", build_info()@version, {})$\n",
             quoted(nonce)
         )
@@ -550,9 +554,9 @@ impl Adapter for Maxima {
         }
         out.push_str(&format!(
             "printf(true, \"~%@@MR-BEGIN ~a~%\", {n})$\n\
-             mr_c0: elapsed_run_time()$ mr_w0: elapsed_real_time()$\n\
+             mr_c0: elapsed_run_time()$ mr_w0: mr_now()$\n\
              mr_r: errcatch({})$\n\
-             mr_c1: elapsed_run_time()$ mr_w1: elapsed_real_time()$\n\
+             mr_c1: elapsed_run_time()$ mr_w1: mr_now()$\n\
              printf(true, \"~%@@MR-TIME ~,6f ~,6f~%\", mr_c1 - mr_c0, mr_w1 - mr_w0)$\n\
              if mr_r = [] then printf(true, \"~%@@MR-ERROR~%\") else \
              printf(true, \"~%@@MR-ANSWER ~a~%~a~%@@MR-ANSWER-END ~a~%\", {n}, string(first(mr_r)), {n})$\n\

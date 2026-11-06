@@ -480,13 +480,16 @@ impl Adapter for FriCAS {
     }
 
     fn start(&self, nonce: &str) -> String {
-        // the first use of the integrator, the limits and the simplifier
+        // The wall clock is `mrun-now`, in seconds: GCL's gettimeofday, to
+        // the microsecond, where its real time has 100 ticks a second.
+        // The first use of the integrator, the limits and the simplifier
         // loads them: done here, untimed
         format!(
             ")set output algebra off\n)set message type off\n)set message prompt none\n\
              )set message time off\n)set quit unprotected\n\
              integrate(sin(x)^2, x)\nlimit(sin(x)/x, x = 0)\nsimplify(sin(x)^2 + cos(x)^2)\n\
              )clear all\n\
+             )lisp (defun mrun-now () #+gcl (si::gettimeofday) #-gcl (/ (get-internal-real-time) (float internal-time-units-per-second 1d0)))\n\
              )lisp (progn (format t \"~%@@MR-VERSION ~a~%@@MR-READY {nonce}~%\" |$build_version|) nil)\n"
         )
     }
@@ -499,9 +502,9 @@ impl Adapter for FriCAS {
             out.push('\n');
         }
         out.push_str(&format!(
-            ")lisp (progn (format t \"~%@@MR-BEGIN {nonce}~%\") (setq |mrunC0| (get-internal-run-time) |mrunW0| (get-internal-real-time)) nil)\n\
+            ")lisp (progn (format t \"~%@@MR-BEGIN {nonce}~%\") (setq |mrunC0| (get-internal-run-time) |mrunW0| (mrun-now)) nil)\n\
              (mrunR := {}; mrunOK := true)\n\
-             )lisp (progn (format t \"~%@@MR-TIME ~,6f ~,6f~%\" (/ (- (get-internal-run-time) |mrunC0|) internal-time-units-per-second) (/ (- (get-internal-real-time) |mrunW0|) internal-time-units-per-second)) nil)\n\
+             )lisp (progn (format t \"~%@@MR-TIME ~,6f ~,6f~%\" (/ (- (get-internal-run-time) |mrunC0|) internal-time-units-per-second) (- (mrun-now) |mrunW0|)) nil)\n\
              mrunT := \"@@none\"\n",
             s.task
         ));
