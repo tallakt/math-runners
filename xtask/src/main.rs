@@ -131,7 +131,13 @@ fn release(only: &[&str]) -> Result<(), String> {
             .current_dir(&dist)
             // no AppleDouble files in archives made on macOS
             .env("COPYFILE_DISABLE", "1")
-            .args(["-czf", &archive, &stem]))?;
+            // no extended attributes either (macOS's com.apple.provenance):
+            // GNU tar warns of them when it unpacks. macOS's tar is bsdtar.
+            .args(if cfg!(target_os = "macos") {
+                vec!["--no-xattrs", "-czf", &archive, &stem]
+            } else {
+                vec!["-czf", &archive, &stem]
+            }))?;
         std::fs::remove_dir_all(&stage).map_err(|e| e.to_string())?;
         let bytes = std::fs::read(dist.join(&archive)).map_err(|e| e.to_string())?;
         let hash: String = Sha256::digest(&bytes)
