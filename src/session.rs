@@ -93,6 +93,16 @@ impl Session {
         for (k, v) in &spec.env {
             cmd.env(k, v);
         }
+        // A runner that dies (kill -9, a crash) must not leave the system
+        // computing on: on Linux the kernel kills it with the runner.
+        #[cfg(target_os = "linux")]
+        unsafe {
+            use std::os::unix::process::CommandExt;
+            cmd.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                Ok(())
+            });
+        }
         if let Some(dir) = &spec.dir {
             cmd.current_dir(dir);
         }

@@ -107,6 +107,8 @@ takes a day or less, the most of it the problems that time out.
 - **A crash.** A system that ends (its exit status, or the signal that killed it, is in the
   message; signal 9 is usually the kernel's out-of-memory killer) is `error` for that problem and
   is started again for the next. Set `--memory-gb` to stop a problem before the machine swaps.
+  If `math-run` itself is killed (`kill -9`), Linux kills the system with it; on macOS a system
+  that was computing keeps going until it is done: look for it in `ps` before you resume.
 - **Questions.** A system that stops to ask (as Maxima's "Is a positive, negative or zero?") is
   seen as waiting: no output and no CPU time for 3 seconds. The problem is written as `error`, with
   the question as its message.
