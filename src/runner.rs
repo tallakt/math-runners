@@ -38,6 +38,18 @@ pub struct Options {
     /// Free text on how the run was made, for the header's `note`.
     #[serde(default)]
     pub note: Option<String>,
+    /// Stop a problem whose system holds more memory than this (GB).
+    #[serde(default)]
+    pub memory_gb: Option<f64>,
+}
+
+impl Options {
+    /// The memory limit in bytes.
+    pub fn memory_limit(&self) -> Option<u64> {
+        self.memory_gb
+            .filter(|g| *g > 0.0)
+            .map(|g| (g * (1u64 << 30) as f64) as u64)
+    }
 }
 
 fn state_path(out: &Path) -> PathBuf {
@@ -62,16 +74,27 @@ pub fn start(o: Options, out: &Path, verbose: bool) -> Result<(), String> {
             out.display()
         ));
     }
-    std::fs::write(state_path(out), serde_json::to_string_pretty(&o).unwrap())
-        .map_err(|e| format!("{}: {e}", state_path(out).display()))?;
     run(o, out, None, verbose)
 }
 
 /// Resume the run of `out` where it stopped.
 pub fn resume(out: &Path, verbose: bool) -> Result<(), String> {
-    let state = std::fs::read_to_string(state_path(out))
-        .map_err(|e| format!("{}: {e}", state_path(out).display()))?;
-    let o: Options = serde_json::from_str(&state).map_err(|e| e.to_string())?;
+    if !out.exists() {
+        return Err(format!(
+            "{}: no such run file. `math-run resume` takes the file `math-run run` was writing \
+             (its -o, or <system>-<subset>-<time>.jsonl)",
+            out.display()
+        ));
+    }
+    let state = std::fs::read_to_string(state_path(out)).map_err(|e| {
+        format!(
+            "{}: {e}. `math-run run` keeps the options of a run in this file beside the run \
+             file; without it the run cannot be resumed (start it again with another -o)",
+            state_path(out).display()
+        )
+    })?;
+    let o: Options =
+        serde_json::from_str(&state).map_err(|e| format!("{}: {e}", state_path(out).display()))?;
     let (header, done) = read_partial(out)?;
     run(o, out, Some((header, done)), verbose)
 }
@@ -118,6 +141,13 @@ fn run(
 ) -> Result<(), String> {
     let adapter =
         adapters::by_slug(&o.system).ok_or_else(|| format!("no adapter for {}", o.system))?;
+    // the system's version, from a first session, which the first job keeps;
+    // before the suite is fetched, which is large, and anything is written
+    let mut first = Worker::new(adapter.as_ref(), &o.command, o.restart_every);
+    first.verbose = verbose;
+    first.memory_limit = o.memory_limit();
+    first.ensure_started()?;
+    let version = first.version.clone().unwrap();
     let suite = load_suite(&o)?;
     let mut todo = suite::ordered(&suite.problems, &o.subset);
     if let Some(only) = &o.only {
@@ -128,12 +158,6 @@ fn run(
         todo.truncate(calibration + n);
     }
     let total = todo.len();
-
-    // the system's version, from a first session, which the first job keeps
-    let mut first = Worker::new(adapter.as_ref(), &o.command, o.restart_every);
-    first.verbose = verbose;
-    first.ensure_started()?;
-    let version = first.version.clone().unwrap();
     if !adapter.tested() {
         eprintln!(
             "note: the {} adapter was written from the documentation, untested",
@@ -169,7 +193,21 @@ fn run(
         eprintln!("resuming: {} of {total} answered", done.len());
     }
     todo.retain(|p| !done.contains(&p.id));
+    eprintln!(
+        "writing {}; Ctrl-C stops the run, and `math-run resume {}` goes on where it stopped",
+        out.display(),
+        out.display()
+    );
+    if let Some(id) = header["machine"]["id"].as_str() {
+        eprintln!(
+            "machine id {id}, a salted hash of this machine's own id, goes in the upload \
+             (MATH_RUN_NO_MACHINE_ID=1 leaves it out)"
+        );
+    }
     let mut file = if done.is_empty() && !out.exists() {
+        // the options are kept once the run is sure to begin
+        std::fs::write(state_path(out), serde_json::to_string_pretty(&o).unwrap())
+            .map_err(|e| format!("{}: {e}", state_path(out).display()))?;
         let mut f = std::fs::File::create(out).map_err(|e| format!("{}: {e}", out.display()))?;
         writeln!(f, "{header}").map_err(|e| e.to_string())?;
         f
@@ -190,6 +228,7 @@ fn run(
         for _ in 1..o.jobs.max(1) {
             let mut w = Worker::new(adapter.as_ref(), &o.command, o.restart_every);
             w.verbose = verbose;
+            w.memory_limit = o.memory_limit();
             workers.push(w);
         }
         for mut w in workers {
@@ -305,7 +344,9 @@ fn check_resume(
         return Err("cannot resume: the timeout differs".into());
     }
     let m = crate::machine::detect();
-    if h["machine"]["cpu"].as_str() != Some(m.cpu.as_str()) {
+    if h["machine"]["cpu"].as_str() != Some(m.cpu.as_str())
+        || h["machine"]["id"].as_str() != m.id.as_deref()
+    {
         eprintln!(
             "warning: the run was started on {}, this machine is {}",
             h["machine"]["cpu"], m.cpu

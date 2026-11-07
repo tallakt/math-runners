@@ -11,6 +11,7 @@ mod print;
 mod problem;
 mod procinfo;
 mod runner;
+mod scrub;
 mod session;
 mod suite;
 mod worker;
@@ -81,6 +82,11 @@ enum Cmd {
         /// Start the system again after this many problems (0: never).
         #[arg(long, default_value_t = 500)]
         restart_every: usize,
+        /// Stop a problem whose system holds more than this many GB of
+        /// memory together (checked four times a second; 0 or not given:
+        /// no limit). The problem is an `error`.
+        #[arg(long)]
+        memory_gb: Option<f64>,
         /// The run file to write.
         #[arg(long, short)]
         out: Option<PathBuf>,
@@ -107,21 +113,30 @@ enum Cmd {
     /// Upload a run file: POST /api/runs.
     Upload {
         file: PathBuf,
-        /// The upload token, from the site's /account; or $MATH_OSP_TOKEN.
+        /// The upload token, from the site's /account (after registering at
+        /// /register); or $MATH_OSP_TOKEN, which keeps it out of the shell's
+        /// history and the process list.
         #[arg(long, env = "MATH_OSP_TOKEN", hide_env_values = true)]
-        token: String,
+        token: Option<String>,
         #[arg(long, default_value = net::SITE)]
         site: String,
         /// Set the run's note in the header before uploading (the file is
         /// not changed).
         #[arg(long)]
         note: Option<String>,
+        /// Upload a run that has not finished (it was interrupted, and is not
+        /// resumed): the problems it did not reach count as missing.
+        #[arg(long)]
+        unfinished: bool,
+        /// Upload a file that was uploaded already: a second run on the site.
+        #[arg(long)]
+        again: bool,
     },
     /// The status of an uploaded run: GET /api/runs/<run>.
     Status {
         run: String,
         #[arg(long, env = "MATH_OSP_TOKEN", hide_env_values = true)]
-        token: String,
+        token: Option<String>,
         #[arg(long, default_value = net::SITE)]
         site: String,
     },
@@ -205,6 +220,7 @@ fn real_main(cli: Cli) -> Result<(), String> {
             timeout,
             jobs,
             restart_every,
+            memory_gb,
             out,
             only,
             limit,
@@ -234,6 +250,7 @@ fn real_main(cli: Cli) -> Result<(), String> {
                 only,
                 limit,
                 note,
+                memory_gb,
             };
             let out = out.unwrap_or_else(|| {
                 PathBuf::from(format!(
@@ -251,24 +268,17 @@ fn real_main(cli: Cli) -> Result<(), String> {
             token,
             site,
             note,
-        } => {
-            let (status, v) = net::upload(&site, &token, &file, note.as_deref())?;
-            println!("{}", serde_json::to_string_pretty(&v).unwrap());
-            if status == 202 {
-                Ok(())
-            } else {
-                Err(format!("the site answered {status}"))
-            }
-        }
-        Cmd::Status { run, token, site } => {
-            let (status, v) = net::status(&site, &token, &run)?;
-            println!("{}", serde_json::to_string_pretty(&v).unwrap());
-            if status == 200 {
-                Ok(())
-            } else {
-                Err(format!("the site answered {status}"))
-            }
-        }
+            unfinished,
+            again,
+        } => net::upload_run(
+            &site,
+            token.as_deref(),
+            &file,
+            note.as_deref(),
+            unfinished,
+            again,
+        ),
+        Cmd::Status { run, token, site } => net::status_of(&site, token.as_deref(), &run),
         Cmd::Suites { site } => {
             let v = net::get_json(&format!("{}/api/suites", site.trim_end_matches('/')))?;
             println!("{}", serde_json::to_string_pretty(&v).unwrap());

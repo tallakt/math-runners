@@ -46,6 +46,10 @@ const RESET_TIME: Duration = Duration::from_secs(120);
 /// How long the system may take to start.
 const START_TIME: Duration = Duration::from_secs(300);
 
+/// How long the system may print nothing and compute nothing while it
+/// starts, before it is taken as not being the system.
+const START_IDLE: Duration = Duration::from_secs(20);
+
 pub struct Worker<'a> {
     pub adapter: &'a dyn Adapter,
     pub spec: Spec,
@@ -60,6 +64,9 @@ pub struct Worker<'a> {
     /// The seconds each start took, to report the overhead.
     pub start_times: Vec<f64>,
     pub verbose: bool,
+    /// The most memory (bytes) the system may hold, none: no limit.
+    pub memory_limit: Option<u64>,
+    private: crate::scrub::Private,
 }
 
 impl<'a> Worker<'a> {
@@ -79,6 +86,8 @@ impl<'a> Worker<'a> {
             since_start: 0,
             start_times: Vec::new(),
             verbose: false,
+            memory_limit: None,
+            private: crate::scrub::Private::here(),
         }
     }
 
@@ -98,21 +107,57 @@ impl<'a> Worker<'a> {
         let text = self.adapter.start(&nonce);
         s.send(&text)
             .map_err(|e| format!("cannot write to the system: {e}"))?;
+        // A program that is not a computer algebra system (`cat`, a shell)
+        // waits for input and computes nothing: it is not waited for until
+        // START_TIME is over. The system itself may be slow to load, but it
+        // reads or computes meanwhile.
+        s.set_idle(START_IDLE);
         let before = s
             .read_to(
                 &format!("@@MR-READY {nonce}"),
                 Instant::now() + START_TIME,
-                false,
+                true,
             )
+            .inspect(|_| s.set_idle(Duration::from_secs(3)))
             .map_err(|e| {
                 let err = s.take_stderr();
-                format!("the system did not start: {e} {}", tail(&err))
+                let what = match e {
+                    ReadError::Timeout => format!(
+                        "did not answer within {} s (is `{}` the system's command-line program?)",
+                        START_TIME.as_secs(),
+                        self.spec.program
+                    ),
+                    // the tail of what it printed is in the error already
+                    ReadError::Ended(_) => format!("{e}"),
+                    ReadError::Waiting(_) => format!(
+                        "{e} (it printed nothing and computed nothing for {} s: is `{}` the \
+                         system's own command-line program?)",
+                        START_IDLE.as_secs(),
+                        self.spec.program
+                    ),
+                    _ => format!("{e} {}", tail(&err)),
+                };
+                let hint = if what.contains("No module named") && self.adapter.slug() == "sympy" {
+                    ". SymPy is not installed for this Python: install it (`apt install \
+                     python3-sympy`, or `pip install sympy` in a virtual environment) and, for \
+                     a virtual environment's Python, give it with --command"
+                } else {
+                    ""
+                };
+                format!("the system did not start: {what}{hint}")
             })?;
         let version = before
             .lines()
             .find_map(|l| l.trim().strip_prefix("@@MR-VERSION "))
             .map(|v| self.adapter.clean_version(v))
-            .ok_or_else(|| format!("the system gave no version: {}", tail(&before)))?;
+            .ok_or_else(|| {
+                format!(
+                    "the system gave no version (is `{}` the system's own command-line \
+                     program?): {}",
+                    self.spec.program,
+                    tail(&before)
+                )
+            })?;
         match &self.version {
             Some(v) if *v != version => {
                 return Err(format!(
@@ -122,6 +167,7 @@ impl<'a> Worker<'a> {
             _ => self.version = Some(version),
         }
         s.take_stderr();
+        s.set_memory_limit(self.memory_limit);
         self.start_times.push(t0.elapsed().as_secs_f64());
         self.session = Some(s);
         self.since_start = 0;
@@ -140,8 +186,17 @@ impl<'a> Worker<'a> {
         }
     }
 
-    /// Give the system one problem, with `timeout` seconds.
+    /// Give the system one problem, with `timeout` seconds. A message is
+    /// scrubbed of what is private here (paths, user and host names).
     pub fn solve(&mut self, p: &Problem, timeout: f64) -> Record {
+        let mut r = self.solve_unscrubbed(p, timeout);
+        if let Some(m) = r.message.take() {
+            r.message = Some(self.private.scrub(&m));
+        }
+        r
+    }
+
+    fn solve_unscrubbed(&mut self, p: &Problem, timeout: f64) -> Record {
         let nonce = self.next_nonce();
         let script = match self.adapter.problem(p, &nonce) {
             Ok(s) => s,

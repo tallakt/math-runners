@@ -47,6 +47,9 @@ pub enum ReadError {
     Waiting(String),
     /// It printed more than `MAX_OUTPUT`.
     TooMuch,
+    /// Its processes held more memory than `--memory-gb` allows (the limit,
+    /// in bytes).
+    Memory(u64),
 }
 
 impl std::fmt::Display for ReadError {
@@ -56,6 +59,11 @@ impl std::fmt::Display for ReadError {
             ReadError::Ended(tail) => write!(f, "the system ended: {tail}"),
             ReadError::Waiting(tail) => write!(f, "the system waits for input: {tail}"),
             ReadError::TooMuch => write!(f, "the system printed over 16 MB"),
+            ReadError::Memory(b) => write!(
+                f,
+                "out of memory: the system held over {:.2} GB, the limit of --memory-gb",
+                *b as f64 / (1u64 << 30) as f64
+            ),
         }
     }
 }
@@ -68,6 +76,10 @@ pub struct Session {
     out: String,
     err: String,
     closed: usize,
+    /// The most memory (bytes) the system's processes may hold together.
+    memory_limit: Option<u64>,
+    /// How long it may sit idle before it is taken as waiting for input.
+    idle: Duration,
 }
 
 impl Session {
@@ -84,9 +96,9 @@ impl Session {
         if let Some(dir) = &spec.dir {
             cmd.current_dir(dir);
         }
-        let mut child = cmd.spawn().map_err(|e| {
-            std::io::Error::new(e.kind(), format!("cannot start {}: {e}", spec.program))
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| std::io::Error::new(e.kind(), spawn_message(&spec.program, &e)))?;
         let pgid = child.id() as i32;
         register(pgid);
         let (tx, rx) = channel();
@@ -134,7 +146,21 @@ impl Session {
             out: String::new(),
             err: String::new(),
             closed: 0,
+            memory_limit: None,
+            idle: IDLE,
         })
+    }
+
+    /// How long the system may print nothing and compute nothing before it is
+    /// taken as waiting for input (3 s unless set).
+    pub fn set_idle(&mut self, idle: Duration) {
+        self.idle = idle;
+    }
+
+    /// Stop the system (`ReadError::Memory`) when its processes hold more
+    /// than this many bytes together.
+    pub fn set_memory_limit(&mut self, bytes: Option<u64>) {
+        self.memory_limit = bytes;
     }
 
     pub fn send(&mut self, text: &str) -> std::io::Result<()> {
@@ -198,6 +224,7 @@ impl Session {
         let mut searched = 0;
         let mut last_activity = Instant::now();
         let mut last_cpu = if watch_idle { self.cpu_seconds() } else { None };
+        let mut last_memory_check = Instant::now();
         loop {
             if let Some((which, before, after)) = find_line(&self.out, markers, searched) {
                 let text = self.out[..before].to_string();
@@ -210,9 +237,21 @@ impl Session {
                 return Err(ReadError::TooMuch);
             }
             if self.closed >= 2 {
-                return Err(ReadError::Ended(tail(&format!("{}{}", self.out, self.err))));
+                let how = self.exit_text();
+                return Err(ReadError::Ended(format!(
+                    "{how}{}",
+                    tail(&format!("{}{}", self.out, self.err))
+                )));
             }
             let now = Instant::now();
+            if let Some(limit) = self.memory_limit
+                && now.duration_since(last_memory_check) >= Duration::from_millis(250)
+            {
+                last_memory_check = now;
+                if crate::procinfo::group_memory_bytes(self.pgid).is_some_and(|used| used > limit) {
+                    return Err(ReadError::Memory(limit));
+                }
+            }
             if now >= deadline {
                 return Err(ReadError::Timeout);
             }
@@ -224,7 +263,7 @@ impl Session {
                     last_activity = Instant::now();
                 }
                 Err(RecvTimeoutError::Timeout) => {
-                    if watch_idle && last_activity.elapsed() >= IDLE {
+                    if watch_idle && last_activity.elapsed() >= self.idle {
                         let cpu = self.cpu_seconds();
                         match (last_cpu, cpu) {
                             (Some(a), Some(b)) if b - a < 0.02 => {
@@ -244,6 +283,27 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// How the system's main process ended, as `(exit status 3) ` or
+    /// `(killed by signal 9) `; empty where it is not known.
+    fn exit_text(&mut self) -> String {
+        use std::os::unix::process::ExitStatusExt;
+        // the output closes a moment before the process can be waited for
+        for _ in 0..20 {
+            if let Ok(Some(st)) = self.child.try_wait() {
+                return match (st.code(), st.signal()) {
+                    (Some(c), _) => format!("(exit status {c}) "),
+                    (None, Some(9)) => {
+                        "(killed by signal 9, as by the kernel when memory runs out) ".into()
+                    }
+                    (None, Some(sig)) => format!("(killed by signal {sig}) "),
+                    _ => String::new(),
+                };
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        String::new()
     }
 
     /// The CPU seconds of every process of the system's group, as the
@@ -313,6 +373,21 @@ fn find_line(text: &str, markers: &[&str], from: usize) -> Option<(usize, usize,
     None
 }
 
+/// Why a program cannot be started, and what to do about it.
+fn spawn_message(program: &str, e: &std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => format!(
+            "cannot start `{program}`: no such program on the PATH. Install the system, or give \
+             the program's full path with --command"
+        ),
+        std::io::ErrorKind::PermissionDenied => format!(
+            "cannot start `{program}`: permission denied. Is it the system's command-line \
+             program? (--command gives another)"
+        ),
+        _ => format!("cannot start `{program}`: {e}"),
+    }
+}
+
 /// The last few lines of a text, for a message.
 pub fn tail(text: &str) -> String {
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -365,6 +440,72 @@ mod tests {
         let r = s.read_to("@@DONE", Instant::now() + Duration::from_millis(300), false);
         assert!(matches!(r, Err(ReadError::Timeout)));
         s.kill();
+    }
+
+    fn shell() -> Session {
+        Session::spawn(&Spec {
+            program: "/bin/sh".into(),
+            args: vec![],
+            env: vec![],
+            dir: None,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn a_crash_says_how_the_system_ended() {
+        let mut s = shell();
+        s.send("echo before; kill -9 $$").unwrap();
+        match s.read_to("@@DONE", Instant::now() + Duration::from_secs(10), false) {
+            Err(ReadError::Ended(t)) => {
+                assert!(t.contains("killed by signal 9"), "{t}");
+                assert!(t.contains("before"), "{t}");
+            }
+            other => panic!("{other:?}"),
+        }
+        let mut s = shell();
+        s.send("exit 3").unwrap();
+        match s.read_to("@@DONE", Instant::now() + Duration::from_secs(10), false) {
+            Err(ReadError::Ended(t)) => assert!(t.contains("exit status 3"), "{t}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn too_much_memory_stops_the_system() {
+        let mut s = shell();
+        if crate::procinfo::group_memory_bytes(s.pgid).is_none() {
+            return;
+        }
+        // a limit no process meets
+        s.set_memory_limit(Some(1000));
+        s.send("sleep 20; echo @@DONE").unwrap();
+        let t0 = Instant::now();
+        let r = s.read_to("@@DONE", Instant::now() + Duration::from_secs(15), false);
+        assert!(matches!(r, Err(ReadError::Memory(1000))), "{r:?}");
+        assert!(t0.elapsed() < Duration::from_secs(5));
+        s.kill();
+        // and one that no process reaches
+        let mut s = shell();
+        s.set_memory_limit(Some(1 << 40));
+        s.send("echo hi; echo @@DONE").unwrap();
+        let r = s.read_to("@@DONE", Instant::now() + Duration::from_secs(10), false);
+        assert_eq!(r.unwrap(), "hi\n");
+    }
+
+    #[test]
+    fn a_missing_program_says_what_to_do() {
+        let spec = Spec {
+            program: "no-such-cas-program".into(),
+            args: vec![],
+            env: vec![],
+            dir: None,
+        };
+        let e = Session::spawn(&spec).err().unwrap().to_string();
+        assert!(
+            e.contains("`no-such-cas-program`") && e.contains("--command"),
+            "{e}"
+        );
     }
 
     #[test]

@@ -7,8 +7,40 @@ pub fn group_cpu_seconds(pgid: i32) -> Option<f64> {
     imp::group_cpu_seconds(pgid)
 }
 
+/// The resident memory, in bytes, of the processes of the group `pgid`.
+pub fn group_memory_bytes(pgid: i32) -> Option<u64> {
+    imp::group_memory_bytes(pgid)
+}
+
 #[cfg(target_os = "linux")]
 mod imp {
+    pub fn group_memory_bytes(pgid: i32) -> Option<u64> {
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(0) as u64;
+        let mut total = 0u64;
+        let mut found = false;
+        for entry in std::fs::read_dir("/proc").ok()?.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if !name.bytes().all(|b| b.is_ascii_digit()) {
+                continue;
+            }
+            let Ok(stat) = std::fs::read_to_string(format!("/proc/{name}/stat")) else {
+                continue;
+            };
+            let Some(close) = stat.rfind(')') else {
+                continue;
+            };
+            let f: Vec<&str> = stat[close + 1..].split_whitespace().collect();
+            if f.len() < 22 || f[2].parse::<i32>().ok() != Some(pgid) {
+                continue;
+            }
+            found = true;
+            // rss, in pages, is field 24 of stat: f[21]
+            total += f[21].parse::<u64>().unwrap_or(0) * page;
+        }
+        found.then_some(total)
+    }
+
     pub fn group_cpu_seconds(pgid: i32) -> Option<f64> {
         let tick = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
         if tick <= 0.0 {
@@ -96,6 +128,37 @@ mod imp {
         })
     }
 
+    pub fn group_memory_bytes(pgid: i32) -> Option<u64> {
+        let mut pids = vec![0 as libc::pid_t; 1024];
+        let n = unsafe {
+            libc::proc_listpgrppids(
+                pgid,
+                pids.as_mut_ptr() as *mut libc::c_void,
+                (pids.len() * std::mem::size_of::<libc::pid_t>()) as libc::c_int,
+            )
+        };
+        if n <= 0 {
+            return None;
+        }
+        let mut total = 0u64;
+        let mut found = false;
+        for &pid in pids.iter().filter(|&&p| p > 0) {
+            let mut info: libc::rusage_info_v0 = unsafe { std::mem::zeroed() };
+            let r = unsafe {
+                libc::proc_pid_rusage(
+                    pid,
+                    libc::RUSAGE_INFO_V0,
+                    &mut info as *mut libc::rusage_info_v0 as *mut libc::rusage_info_t,
+                )
+            };
+            if r == 0 {
+                found = true;
+                total += info.ri_resident_size;
+            }
+        }
+        found.then_some(total)
+    }
+
     pub fn group_cpu_seconds(pgid: i32) -> Option<f64> {
         let mut pids = vec![0 as libc::pid_t; 1024];
         let n = unsafe {
@@ -130,6 +193,10 @@ mod imp {
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod imp {
+    pub fn group_memory_bytes(_pgid: i32) -> Option<u64> {
+        None
+    }
+
     pub fn group_cpu_seconds(_pgid: i32) -> Option<f64> {
         None
     }
