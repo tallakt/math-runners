@@ -23,11 +23,25 @@ pub struct Machine {
 /// the hash leaves the machine. None where there is no such id, or where
 /// `MATH_RUN_NO_MACHINE_ID` is set (to anything but empty or `0`).
 pub fn id() -> Option<String> {
-    use sha2::{Digest, Sha256};
-    if std::env::var("MATH_RUN_NO_MACHINE_ID").is_ok_and(|v| !v.is_empty() && v != "0") {
+    let opt_out = std::env::var("MATH_RUN_NO_MACHINE_ID").ok();
+    if opted_out(opt_out.as_deref()) {
         return None;
     }
-    let raw = raw_id()?;
+    id_of(&raw_id()?)
+}
+
+/// `MATH_RUN_NO_MACHINE_ID` set to anything but empty or `0`.
+fn opted_out(value: Option<&str>) -> bool {
+    value.is_some_and(|v| !v.is_empty() && v != "0")
+}
+
+/// The id of a raw machine id: none where it is empty.
+fn id_of(raw: &str) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
     let hash = Sha256::digest(format!("math.osp.no machine {raw}").as_bytes());
     Some(hash.iter().take(8).map(|b| format!("{b:02x}")).collect())
 }
@@ -43,7 +57,10 @@ fn raw_id() -> Option<String> {
             .find(|l| l.contains("\"IOPlatformUUID\""))
             .and_then(|l| l.rsplit('"').nth(1).map(str::to_string))?
     } else {
-        std::fs::read_to_string("/etc/machine-id").ok()?
+        // systemd's, else dbus's (Debian without systemd, older containers)
+        std::fs::read_to_string("/etc/machine-id")
+            .or_else(|_| std::fs::read_to_string("/var/lib/dbus/machine-id"))
+            .ok()?
     };
     let raw = raw.trim().to_string();
     (!raw.is_empty()).then_some(raw)
@@ -182,4 +199,26 @@ fn sysctl_string(name: &str) -> Option<String> {
 
 fn sysctl_u64(name: &str) -> Option<u64> {
     sysctl_string(name)?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn id_is_a_salted_hash_of_the_raw_id() {
+        // sha256("math.osp.no machine some-raw-id"), first 16 hex digits
+        assert_eq!(id_of(" some-raw-id\n").as_deref(), Some("63a6532068408cf4"));
+        assert_eq!(id_of("some-raw-id").as_deref(), Some("63a6532068408cf4"));
+        assert_eq!(id_of("  "), None);
+    }
+
+    #[test]
+    fn opt_out_is_anything_but_empty_or_zero() {
+        assert!(!opted_out(None));
+        assert!(!opted_out(Some("")));
+        assert!(!opted_out(Some("0")));
+        assert!(opted_out(Some("1")));
+        assert!(opted_out(Some("yes")));
+    }
 }
