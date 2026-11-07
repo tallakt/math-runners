@@ -19,8 +19,14 @@ One binary has an adapter for each system:
 
 ## Install
 
-Download the binary for your machine from the site's [downloads](https://math.osp.no/downloads),
-or build it with Rust 1.85 or later:
+`math-run` runs on Linux (x86_64, aarch64) and macOS (arm64, and Intel by building it); not on
+Windows (use WSL). It needs the network only to fetch the suite and to upload.
+
+Download the binary for your machine from the site's [downloads](https://math.osp.no/downloads)
+(check the SHA-256 given there), unpack it (`tar xzf math-run-0.1.0-linux-x86_64.tar.gz`; GNU tar
+may warn about `LIBARCHIVE.xattr` keywords: harmless), and run `math-run-.../math-run`, or put it
+on the `PATH`. Or build it, with Rust 1.85 or later (`rustup`, or your package manager's `cargo`;
+the build fetches its crates from crates.io):
 
 ```
 cargo build --release        # target/release/math-run
@@ -29,7 +35,9 @@ cargo build --release        # target/release/math-run
 Install the system you run, so that its program is on the `PATH`, or give the program with
 `--command`:
 
-- **SymPy**: `python3 -m venv venv && venv/bin/pip install sympy`, then `--command venv/bin/python`.
+- **SymPy**: Debian, Ubuntu: `apt install python3-sympy` (the plain `python3` then has it; a fresh
+  Debian has neither `pip` nor `venv`). Elsewhere: `python3 -m venv venv && venv/bin/pip install
+  sympy`, then `--command venv/bin/python`. Without SymPy, `math-run` says so and stops.
 - **Maxima**: your package manager's `maxima` (Homebrew: `brew install maxima`).
 - **FriCAS**: `fricas` (Homebrew: `brew install fricas`; Debian: `apt install fricas`).
 - **Giac**: the command-line `giac` of the `xcas` package (Debian, Ubuntu), or Bernard Parisse's
@@ -39,7 +47,9 @@ Install the system you run, so that its program is on the `PATH`, or give the pr
 - **Mathematica**: the command-line kernel, `wolfram` (Wolfram Engine, Mathematica).
 
 `math-run version -s <system>` starts the system and prints its version, as the run file will
-have it.
+have it. Do this first: a system that is not installed, or a `--command` that is not the system's
+command-line program, is told here and not after the suite is fetched (a program that prints
+nothing and computes nothing for 20 seconds is taken as not being the system).
 
 ## Run
 
@@ -65,6 +75,7 @@ The options:
 | `--timeout` | the seconds each problem has | 30 |
 | `--jobs` | problems at a time, each in a session of its own | 1 |
 | `--restart-every` | start the system again after this many problems, 0 never | 500 |
+| `--memory-gb` | stop a problem whose system (all its processes) holds more than this many GB, as an `error` (checked four times a second) | no limit |
 | `--out`, `-o` | the run file | `<system>-<subset>-<time>.jsonl` |
 | `--suite`, `--suite-version` | a local suite file instead of the site's, and its version | |
 | `--site` | the site | `https://math.osp.no` |
@@ -93,6 +104,9 @@ takes a day or less, the most of it the problems that time out.
   them itself from the line Giac prints when its work is done, the CPU time from the operating
   system. For a problem that runs out of time, `wall` is the time it had and `cpu` the CPU time the
   operating system counted.
+- **A crash.** A system that ends (its exit status, or the signal that killed it, is in the
+  message; signal 9 is usually the kernel's out-of-memory killer) is `error` for that problem and
+  is started again for the next. Set `--memory-gb` to stop a problem before the machine swaps.
 - **Questions.** A system that stops to ask (as Maxima's "Is a positive, negative or zero?") is
   seen as waiting: no output and no CPU time for 3 seconds. The problem is written as `error`, with
   the question as its message.
@@ -142,13 +156,19 @@ A run that stops (Ctrl-C, a reboot) resumes where it stopped:
 math-run resume maxima-full-2026-11-04T100000Z.jsonl
 ```
 
-The run's options are kept beside the run file, in `<file>.state.json`. The run resumes only with
-the same suite, subset, timeout and system version; it warns where the machine is another. A line
-cut short by the interruption is removed. The header counts the resumes (`"resumed"`).
+The run's options are kept beside the run file, in `<file>.state.json` (it is written when the run
+begins; keep it with the run file). The run resumes only with the same suite, subset, timeout and
+system version; it warns where the machine is another. A line cut short by the interruption (also
+by `kill -9` or a power cut) is removed, and the problems already answered are not given again, so
+no problem is answered twice or lost. The header counts the resumes (`"resumed"`). The run file
+is written as the problems come, one line each; do not resume it from two terminals at once.
 
 ## Upload
 
-Register at the site's `/register` for an upload token, then:
+Register at the site's `/register` with your email address; the link we mail you shows your upload
+token, and `/account` (log in) shows it again, or makes a new one, which replaces the old. Give
+the token as the environment variable `MATH_OSP_TOKEN` (it is not kept in any file, and not in the
+shell's history or the process list as `--token` would be):
 
 ```
 export MATH_OSP_TOKEN=...
@@ -161,6 +181,17 @@ copy of it: `--site http://math.localhost:4000`). The site checks the whole file
 and then grades it in the background; `status` tells how far it is, and the totals once graded.
 `upload --note "..."` sends the run with that note in its header (an empty one removes it), and
 leaves the file as it is; the uploader can change the note later on the run's page.
+
+- **A run that did not finish** (interrupted, not resumed) is not uploaded: `resume` it, or add
+  `--unfinished` to upload what there is; the problems not reached count as missing.
+- **The same file twice.** After the site takes a run, `<file>.uploaded.json` records its run id;
+  `upload` of that file again refuses, as it would make a second run on the site. `--again`
+  uploads it anyway.
+- **Errors** say what happened: no token, or one the site does not take (401: see `/account`); a
+  file the site refuses (422: its faults are listed, and nothing is kept); no network, or a site
+  that does not answer in 10 minutes (nothing, or maybe the file, reached the site: the message
+  says which; look at your runs on the site before uploading again if it says maybe). The exit
+  status is 1 for each.
 
 ## The run file
 
@@ -178,6 +209,14 @@ their CPU, cores, threads and memory.
 
 Each problem's line is section 5.2's: `id`, `status`, `answer` (with `ok`), `wall` and `cpu` (in
 seconds), and `message` (with `error` and `unsupported`).
+
+**What is private.** The upload holds the header above and the lines of the problems, nothing else:
+not your user name, host name, paths, the program given to `--command`, or the token (which is
+the request's header, not the file). A system's error message can carry them (a Python
+traceback has file paths), so the messages are scrubbed as they are written: your home directory
+becomes `~`, the working directory `.`, and your user name and host name `<user>` and `<host>`.
+`<file>.state.json` (with the paths) stays on your machine. Read the file before uploading if in
+doubt: it is plain JSON lines.
 
 ## What each adapter gives the system, and writes
 
