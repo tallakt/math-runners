@@ -452,6 +452,10 @@ const SETTINGS: &str =
     "interface(prettyprint = 0, screenwidth = infinity, echo = 0, warnlevel = 0, errorbreak = 0):";
 
 impl Adapter for Maple {
+    fn clean_version(&self, text: &str) -> String {
+        clean_maple_version(text)
+    }
+
     fn name(&self) -> &'static str {
         "Maple"
     }
@@ -508,5 +512,27 @@ impl Adapter for Maple {
 
     fn tested(&self) -> bool {
         false
+    }
+}
+
+/// `kernelopts(version)` says "Maple 2020.2, APPLE UNIVERSAL OSX, Nov 11 2020,
+/// Build ID 1502365": the version is "2020.2"
+fn clean_maple_version(text: &str) -> String {
+    let first = text.split(',').next().unwrap_or(text).trim().trim_matches('"');
+    first.strip_prefix("Maple").unwrap_or(first).trim().to_string()
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::clean_maple_version;
+
+    #[test]
+    fn the_version_alone() {
+        assert_eq!(
+            clean_maple_version("Maple 2020.2, APPLE UNIVERSAL OSX, Nov 11 2020, Build ID 1502365"),
+            "2020.2"
+        );
+        assert_eq!(clean_maple_version("  Maple 2024.1  "), "2024.1");
+        assert_eq!(clean_maple_version("2023.0"), "2023.0");
     }
 }
