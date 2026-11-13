@@ -5,7 +5,7 @@
 use super::{
     Adapter, Condition, MonomialOrder, PolyDomain, conditions, monomial_order, poly_domain, quoted,
 };
-use crate::expr::{Expr, Rel};
+use crate::expr::{Expr, Nested, Rel};
 use crate::print::{Dialect, Out, Printer, Unsupported, diff_args, unsupported};
 use crate::problem::{Assumption, Problem};
 use crate::session::Spec;
@@ -53,6 +53,23 @@ impl Dialect for D {
             Rel::Ne => "#",
             r => r.neutral(),
         }
+    }
+
+    /// `integrate` with its bounds, `simplify_sum` of the `sum` (which stays a noun with symbolic
+    /// bounds), `product` with `simpproduct` set, and `limit`, from both sides.
+    fn nested(&self, p: &Printer, kind: Nested, body: &Expr, var: &Expr, rest: &[Expr]) -> Out {
+        let (f, x) = (p.print(body)?, p.print(var)?);
+        let bound = |k: usize| p.print(&rest[k]);
+        Ok(match kind {
+            Nested::Integral => format!("integrate({f}, {x}, {}, {})", bound(0)?, bound(1)?),
+            Nested::Sum => format!("simplify_sum(sum({f}, {x}, {}, {}))", bound(0)?, bound(1)?),
+            Nested::Product => format!(
+                "block([simpproduct: true], product({f}, {x}, {}, {}))",
+                bound(0)?,
+                bound(1)?
+            ),
+            Nested::Limit => format!("limit({f}, {x}, {})", bound(0)?),
+        })
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
@@ -192,6 +209,10 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
             },
         }
     }
+    // simplify_sum, for the nested sums
+    if p.nested_forms()?.iter().any(|(_, k)| *k == Nested::Sum) {
+        pre.push("load(simplify_sum)".into());
+    }
     let task = match p.op.as_str() {
         "integrate" => {
             let (f, x) = (arg("integrand")?, p.symbol("var")?);
@@ -204,7 +225,9 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
         "solve_ode" => ode(p, &funcs, &mut pre)?,
         "solve_pde" => return unsupported("Maxima has no PDE solver"),
         "sum" => {
-            pre.push("load(simplify_sum)".into());
+            if !pre.iter().any(|l| l == "load(simplify_sum)") {
+                pre.push("load(simplify_sum)".into());
+            }
             format!(
                 "simplify_sum(sum({}, {}, {}, {}))",
                 arg("term")?,
@@ -577,5 +600,68 @@ impl Adapter for Maxima {
             .join("\n")
             .trim()
             .to_string()
+    }
+}
+
+#[cfg(test)]
+mod nested_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D {
+            funcs: vec![],
+            form: FnForm::Call,
+        };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// The forms as the system's own, by golden strings.
+    #[test]
+    fn nested_forms_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            ("integrate(x^2, x, 0, 3)", "integrate(x^2, x, 0, 3)"),
+            ("sum(k, k, 1, 4)", "simplify_sum(sum(k, k, 1, 4))"),
+            (
+                "product(k, k, 1, 4)",
+                "block([simpproduct: true], product(k, k, 1, 4))",
+            ),
+            ("limit(sin(x)/x, x, 0)", "limit(sin(x)/x, x, 0)"),
+            (
+                "sum(integrate(x^3, x, 0, k), k, 1, 3)",
+                "simplify_sum(sum(integrate(x^3, x, 0, k), k, 1, 3))",
+            ),
+            (
+                "limit((1 + 1/n)^n, n, infinity)",
+                "limit((1 + 1/n)^n, n, inf)",
+            ),
+            (
+                "integrate(exp(-x^2), x, -infinity, infinity)",
+                "integrate(exp(-x^2), x, minf, inf)",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
+
+    /// Printed, given to Maxima, the value read back.
+    #[test]
+    fn nested_forms_round_trip() {
+        if roundtrip::run("maxima", &["--version"], "").is_none() {
+            return roundtrip::skipped("Maxima");
+        }
+        let mut script = String::from("load(simplify_sum)$ display2d: false$ ");
+        for (neutral, _) in roundtrip::CASES {
+            script += &format!("print(\"@@\", {})$ ", print(neutral));
+        }
+        let out =
+            roundtrip::run("maxima", &["--very-quiet", "--batch-string", &script], "").unwrap();
+        let got: Vec<String> = out
+            .lines()
+            .filter_map(|l| l.strip_prefix("@@ ").map(|v| v.trim().to_string()))
+            .collect();
+        roundtrip::check("Maxima", &got);
     }
 }

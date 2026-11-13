@@ -12,7 +12,7 @@
 //! from the operating system.
 
 use super::{Adapter, MonomialOrder, PolyDomain, conditions, monomial_order, poly_domain, quoted};
-use crate::expr::{Expr, Rel};
+use crate::expr::{Expr, Nested, Rel};
 use crate::print::{Dialect, Out, Printer, Unsupported, diff_args, unsupported};
 use crate::problem::{Assumption, Problem};
 use crate::session::Spec;
@@ -51,6 +51,18 @@ impl Dialect for D {
             "'".repeat(order),
             p.args(args)?.join(", ")
         ))
+    }
+
+    /// `integrate`, `sum`, `product` with their bounds as arguments, `limit` from both sides.
+    fn nested(&self, p: &Printer, kind: Nested, body: &Expr, var: &Expr, rest: &[Expr]) -> Out {
+        let (f, x) = (p.print(body)?, p.print(var)?);
+        let name = match kind {
+            Nested::Integral => "integrate",
+            Nested::Sum => "sum",
+            Nested::Product => "product",
+            Nested::Limit => "limit",
+        };
+        Ok(format!("{name}({f}, {x}, {})", p.args(rest)?.join(", ")))
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
@@ -469,4 +481,44 @@ impl Adapter for Giac {
         }
         out.join(" ")
     }
+}
+
+#[cfg(test)]
+mod nested_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D { funcs: vec![] };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// The forms as the system's own, by golden strings.
+    #[test]
+    fn nested_forms_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            ("integrate(x^2, x, 0, 3)", "integrate(x^2, x, 0, 3)"),
+            ("sum(k, k, 1, 4)", "sum(k, k, 1, 4)"),
+            ("product(k, k, 1, 4)", "product(k, k, 1, 4)"),
+            ("limit(sin(x)/x, x, 0)", "limit(sin(x)/x, x, 0)"),
+            (
+                "sum(integrate(x^3, x, 0, k), k, 1, 3)",
+                "sum(integrate(x^3, x, 0, k), k, 1, 3)",
+            ),
+            (
+                "limit((1 + 1/n)^n, n, infinity)",
+                "limit((1 + 1/n)^n, n, inf)",
+            ),
+            (
+                "integrate(exp(-x^2), x, -infinity, infinity)",
+                "integrate(exp(-x^2), x, -inf, inf)",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
+
+    // giac is not installed where this is built: the printing is tested by its golden strings only
 }

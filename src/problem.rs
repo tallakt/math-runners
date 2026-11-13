@@ -3,7 +3,7 @@
 
 use serde_json::{Map, Value};
 
-use crate::expr::{self, Expr};
+use crate::expr::{self, Expr, Nested};
 use crate::print::{Unsupported, unsupported};
 
 #[derive(Clone, Debug)]
@@ -146,6 +146,29 @@ impl Problem {
         }
         // `element(n, integers)`: the set's name is not a symbol
         out.retain(|s| !SETS.contains(&s.as_str()));
+        Ok(out)
+    }
+
+    /// The nested forms of the arguments, each with its variable, in order.
+    pub fn nested_forms(&self) -> Result<Vec<(String, Nested)>, Unsupported> {
+        let mut forms = Vec::new();
+        for (key, v) in &self.args {
+            for e in values_exprs(key, v)? {
+                e.nested(&mut forms);
+            }
+        }
+        Ok(forms)
+    }
+
+    /// The variables of the nested forms, each with what the formats assume of it, `real` or
+    /// `integer`, the first form's where a symbol is the variable of several.
+    pub fn nested_variables(&self) -> Result<Vec<(String, &'static str)>, Unsupported> {
+        let mut out: Vec<(String, &'static str)> = Vec::new();
+        for (v, kind) in self.nested_forms()? {
+            if !out.iter().any(|(w, _)| *w == v) {
+                out.push((v, kind.variable_is()));
+            }
+        }
         Ok(out)
     }
 

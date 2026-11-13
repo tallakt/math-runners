@@ -6,8 +6,10 @@
 //! Untested: written from the Wolfram Language documentation, without a
 //! kernel to run it on.
 
+use std::cell::RefCell;
+
 use super::{Adapter, MonomialOrder, PolyDomain, conditions, monomial_order, poly_domain, quoted};
-use crate::expr::{Expr, Rel};
+use crate::expr::{Expr, Nested, Rel};
 use crate::print::{Dialect, Out, Printer, Unsupported, diff_args, unsupported};
 use crate::problem::{Assumption, Problem};
 use crate::session::Spec;
@@ -16,6 +18,9 @@ pub struct Mathematica;
 
 struct D {
     funcs: Vec<(String, Vec<String>)>,
+    /// The problem's assumptions, as the value of the `Assumptions` option, which a nested form
+    /// takes as the task does: set once the assumptions are written.
+    assumptions: RefCell<String>,
 }
 
 /// A symbol: Mathematica's names have no `_` (it makes patterns), and the
@@ -76,6 +81,28 @@ impl Dialect for D {
             ident(name),
             p.args(args)?.join(", ")
         ))
+    }
+
+    /// `Integrate`, `Sum`, `Product` over `{x, a, b}` and `Limit` with `x -> p` (from both sides),
+    /// each with the problem's assumptions.
+    fn nested(&self, p: &Printer, kind: Nested, body: &Expr, var: &Expr, rest: &[Expr]) -> Out {
+        let (f, x) = (p.print(body)?, p.print(var)?);
+        let opt = format!("Assumptions -> {}", self.assumptions.borrow());
+        Ok(match kind {
+            Nested::Limit => format!("Limit[{f}, {x} -> {}, {opt}]", p.print(&rest[0])?),
+            kind => {
+                let name = match kind {
+                    Nested::Integral => "Integrate",
+                    Nested::Sum => "Sum",
+                    _ => "Product",
+                };
+                format!(
+                    "{name}[{f}, {{{x}, {}, {}}}, {opt}]",
+                    p.print(&rest[0])?,
+                    p.print(&rest[1])?
+                )
+            }
+        })
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
@@ -191,6 +218,7 @@ pub(crate) fn build(p: &Problem) -> Result<String, Unsupported> {
     let funcs = p.unknown_functions()?;
     let d = D {
         funcs: funcs.clone(),
+        assumptions: RefCell::new("True".into()),
     };
     let pr = Printer::new(&d);
     let pe = |e: &Expr| pr.print(e);
@@ -216,11 +244,17 @@ pub(crate) fn build(p: &Problem) -> Result<String, Unsupported> {
         "sum" | "product" => assume.push(format!("Element[{}, Integers]", var("var")?)),
         _ => {}
     }
+    // and the variable of each nested form the same
+    for (v, fact) in p.nested_variables()? {
+        let set = if fact == "real" { "Reals" } else { "Integers" };
+        assume.push(format!("Element[{}, {set}]", ident(&v)));
+    }
     let assumptions = if assume.is_empty() {
         "True".to_string()
     } else {
         assume.join(" && ")
     };
+    *d.assumptions.borrow_mut() = assumptions.clone();
     let opt = format!("Assumptions -> {assumptions}");
     let call_of = |(f, vs): &(String, Vec<String>)| {
         format!(
@@ -523,4 +557,56 @@ impl Adapter for Mathematica {
     fn tested(&self) -> bool {
         false
     }
+}
+
+#[cfg(test)]
+mod nested_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D {
+            funcs: vec![],
+            assumptions: RefCell::new("True".into()),
+        };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// The forms as the system's own, by golden strings.
+    #[test]
+    fn nested_forms_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            (
+                "integrate(x^2, x, 0, 3)",
+                "Integrate[x^2, {x, 0, 3}, Assumptions -> True]",
+            ),
+            ("sum(k, k, 1, 4)", "Sum[k, {k, 1, 4}, Assumptions -> True]"),
+            (
+                "product(k, k, 1, 4)",
+                "Product[k, {k, 1, 4}, Assumptions -> True]",
+            ),
+            (
+                "limit(sin(x)/x, x, 0)",
+                "Limit[Sin[x]/x, x -> 0, Assumptions -> True]",
+            ),
+            (
+                "sum(integrate(x^3, x, 0, k), k, 1, 3)",
+                "Sum[Integrate[x^3, {x, 0, k}, Assumptions -> True], {k, 1, 3}, Assumptions -> True]",
+            ),
+            (
+                "limit((1 + 1/n)^n, n, infinity)",
+                "Limit[(1 + 1/n)^n, n -> Infinity, Assumptions -> True]",
+            ),
+            (
+                "integrate(exp(-x^2), x, -infinity, infinity)",
+                "Integrate[Exp[-x^2], {x, -Infinity, Infinity}, Assumptions -> True]",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
+
+    // mathematica is not installed where this is built: the printing is tested by its golden strings only
 }

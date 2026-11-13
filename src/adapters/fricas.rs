@@ -8,7 +8,7 @@
 //! the adapter writes the answer from its fields, as the README says.
 
 use super::{Adapter, MonomialOrder, PolyDomain, conditions, monomial_order, poly_domain};
-use crate::expr::{Expr, Rel};
+use crate::expr::{Expr, Nested, Rel};
 use crate::print::{Dialect, Out, Printer, Unsupported, diff_args, unsupported};
 use crate::problem::Problem;
 use crate::session::Spec;
@@ -51,6 +51,33 @@ impl Dialect for D {
             Rel::Ne => "~=",
             r => r.neutral(),
         }
+    }
+
+    /// `sum` and `product` over `k = a..b` (finite bounds only), and the definite integral and
+    /// the limit from both sides, which FriCAS gives as a tagged union: taken as a value
+    /// (`OrderedCompletion`, then the expression), an error where it is a failure, a pole, or the
+    /// two sides' record.
+    fn nested(&self, p: &Printer, kind: Nested, body: &Expr, var: &Expr, rest: &[Expr]) -> Out {
+        let (f, x) = (p.print(body)?, p.print(var)?);
+        let value = |call: String| format!("((({call}) :: OrderedCompletion({EXPR})) :: {EXPR})");
+        Ok(match kind {
+            Nested::Limit => value(format!(
+                "limit(({f})::{EXPR}, {x} = {})",
+                p.print(&rest[0])?
+            )),
+            kind => {
+                if kind != Nested::Integral && rest.iter().any(is_infinite) {
+                    return unsupported(format!("FriCAS's {kind:?} takes no infinite bounds"));
+                }
+                let (a, b) = (p.print(&rest[0])?, p.print(&rest[1])?);
+                match kind {
+                    Nested::Integral => value(format!("integrate(({f})::{EXPR}, {x} = {a}..{b})")),
+                    // a polynomial sum is of type Fraction(Polynomial(Integer)): an expression
+                    Nested::Sum => format!("((sum({f}, {x} = {a}..{b}))::{EXPR})"),
+                    _ => format!("((product({f}, {x} = {a}..{b}))::{EXPR})"),
+                }
+            }
+        })
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
@@ -547,5 +574,88 @@ impl Adapter for FriCAS {
             out.push(t.to_string());
         }
         out.join(" ")
+    }
+}
+
+#[cfg(test)]
+mod nested_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D { funcs: vec![] };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// The forms as the system's own, by golden strings.
+    #[test]
+    fn nested_forms_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            (
+                "integrate(x^2, x, 0, 3)",
+                "(((integrate((x^2)::Expression(Integer), x = 0..3)) :: OrderedCompletion(Expression(Integer))) :: Expression(Integer))",
+            ),
+            (
+                "sum(k, k, 1, 4)",
+                "((sum(k, k = 1..4))::Expression(Integer))",
+            ),
+            (
+                "product(k, k, 1, 4)",
+                "((product(k, k = 1..4))::Expression(Integer))",
+            ),
+            (
+                "limit(sin(x)/x, x, 0)",
+                "(((limit((sin(x)/x)::Expression(Integer), x = 0)) :: OrderedCompletion(Expression(Integer))) :: Expression(Integer))",
+            ),
+            (
+                "sum(integrate(x^3, x, 0, k), k, 1, 3)",
+                "((sum((((integrate((x^3)::Expression(Integer), x = 0..k)) :: OrderedCompletion(Expression(Integer))) :: Expression(Integer)), k = 1..3))::Expression(Integer))",
+            ),
+            (
+                "limit((1 + 1/n)^n, n, infinity)",
+                "(((limit(((1 + 1/n)^n)::Expression(Integer), n = %plusInfinity)) :: OrderedCompletion(Expression(Integer))) :: Expression(Integer))",
+            ),
+            (
+                "integrate(exp(-x^2), x, -infinity, infinity)",
+                "(((integrate((exp(-x^2))::Expression(Integer), x = %minusInfinity..%plusInfinity)) :: OrderedCompletion(Expression(Integer))) :: Expression(Integer))",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
+
+    /// Printed, given to FriCAS, the value read back (`unparse` of the value, a string).
+    #[test]
+    fn nested_forms_round_trip() {
+        if roundtrip::run("fricas", &["-nosman", "-noclef", "-nox"], ")quit\n").is_none() {
+            return roundtrip::skipped("FriCAS");
+        }
+        let mut input = String::new();
+        for (neutral, _) in roundtrip::CASES {
+            input += &format!("unparse(({})::InputForm)\n", print(neutral));
+        }
+        input += ")quit\n";
+        let out = roundtrip::run("fricas", &["-nosman", "-noclef", "-nox"], &input).unwrap();
+        // each result is a line `   (n)  "value"`
+        let got: Vec<String> = out
+            .lines()
+            .filter_map(|l| {
+                let (head, rest) = l.trim().split_once(")  ")?;
+                let value = rest.strip_prefix('"')?.strip_suffix('"')?;
+                head.starts_with('(').then(|| value.to_string())
+            })
+            .collect();
+        roundtrip::check("FriCAS", &got);
+    }
+
+    /// FriCAS's sums and products take no infinite bounds.
+    #[test]
+    fn an_infinite_sum_is_refused() {
+        let d = D { funcs: vec![] };
+        let e = parse("sum(1/2^k, k, 0, infinity)").unwrap();
+        let why = Printer::new(&d).print(&e).unwrap_err();
+        assert!(why.0.contains("infinite bounds"), "{why}");
     }
 }

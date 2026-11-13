@@ -2,7 +2,7 @@
 //! `Dialect`: its numbers, symbols and constants, its functions and its
 //! operators; the printer puts in the parentheses.
 
-use crate::expr::{Expr, Op, Rel};
+use crate::expr::{Expr, Nested, Op, Rel};
 
 /// The runner has no way to give the system this: the problem is written
 /// as `unsupported`, with the reason as its message.
@@ -54,6 +54,13 @@ pub trait Dialect {
 
     /// A call of a function of the neutral syntax, or of an unknown one.
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out;
+
+    /// A nested form (an integral, a sum, a product, a limit) inside a problem's expression, as
+    /// the system's own form that works it out: `body`, the variable (a symbol), and the bounds
+    /// `[a, b]` of an integral, a sum or a product, or the point `[p]` of a limit.
+    fn nested(&self, _p: &Printer, kind: Nested, _body: &Expr, _var: &Expr, _rest: &[Expr]) -> Out {
+        unsupported(format!("{}: no form for a nested {kind:?}", self.system()))
+    }
 
     /// `y'(0)`, the derivative of an unknown function at a point.
     fn prime(&self, _p: &Printer, name: &str, _order: usize, _args: &[Expr]) -> Out {
@@ -144,7 +151,10 @@ impl<'a> Printer<'a> {
             Expr::Int(n) => (d.int(n), ATOM),
             Expr::Dec(x) => (d.dec(x), ATOM),
             Expr::Sym(s) => (d.symbol(s)?, ATOM),
-            Expr::Call(name, args) => (d.call(self, name, args)?, ATOM),
+            Expr::Call(name, args) => match Nested::of(name, args).map_err(Unsupported)? {
+                Some(kind) => (d.nested(self, kind, &args[0], &args[1], &args[2..])?, ATOM),
+                None => (d.call(self, name, args)?, ATOM),
+            },
             Expr::Prime(name, k, args) => (d.prime(self, name, *k, args)?, ATOM),
             Expr::List(items) => (d.list(self.args(items)?), ATOM),
             Expr::Neg(a) => {
@@ -210,6 +220,12 @@ impl<'a> Printer<'a> {
             }
         })
     }
+}
+
+/// Whether an expression is `infinity` or `-infinity`.
+pub fn is_infinite(e: &Expr) -> bool {
+    matches!(e, Expr::Sym(s) if s == "infinity")
+        || matches!(e, Expr::Neg(a) if a.as_sym() == Some("infinity"))
 }
 
 /// The arguments of a neutral `subs(f, x = a)`: the expression, the

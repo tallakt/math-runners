@@ -5,8 +5,8 @@
 use serde_json::json;
 
 use super::{Adapter, MonomialOrder, PolyDomain, conditions, monomial_order, poly_domain};
-use crate::expr::{Expr, Rel};
-use crate::print::{Dialect, Out, Printer, Unsupported, diff_args, unsupported};
+use crate::expr::{Expr, Nested, Rel};
+use crate::print::{Dialect, Out, Printer, Unsupported, diff_args, is_infinite, unsupported};
 use crate::problem::{Assumption, Problem};
 use crate::session::Spec;
 
@@ -91,6 +91,27 @@ impl Dialect for D {
             fun(name),
             p.print(&args[0])?
         ))
+    }
+
+    /// `sp.integrate`, `sp.summation`, `sp.product` and `sp.limit`, which work the form out and
+    /// give it back as `Integral`, `Sum`, ... where they cannot. The limit from both sides: SymPy's
+    /// own is from the right.
+    fn nested(&self, p: &Printer, kind: Nested, body: &Expr, var: &Expr, rest: &[Expr]) -> Out {
+        let (f, x) = (p.print(body)?, p.print(var)?);
+        let bound = |k: usize| p.print(&rest[k]);
+        Ok(match kind {
+            Nested::Integral => format!("sp.integrate({f}, ({x}, {}, {}))", bound(0)?, bound(1)?),
+            Nested::Sum => format!("sp.summation({f}, ({x}, {}, {}))", bound(0)?, bound(1)?),
+            Nested::Product => format!("sp.product({f}, ({x}, {}, {}))", bound(0)?, bound(1)?),
+            Nested::Limit => {
+                let dir = if is_infinite(&rest[0]) {
+                    ""
+                } else {
+                    ", dir='+-'"
+                };
+                format!("sp.limit({f}, {x}, {}{dir})", bound(0)?)
+            }
+        })
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
@@ -261,7 +282,10 @@ fn build(p: &Problem) -> Result<Code, Unsupported> {
         "solve" if p.real_domain()? => None,
         _ => None,
     };
-    if let Some((v, prop)) = &real_var {
+    // and the variable of each nested form the same
+    let mut taken: Vec<(String, &str)> = real_var.into_iter().collect();
+    taken.extend(p.nested_variables()?);
+    for (v, prop) in &taken {
         if let Some(e) = props.iter_mut().find(|e| e.0 == *v) {
             if e.1.is_empty() {
                 e.1.push(prop);
@@ -652,4 +676,82 @@ impl Adapter for SymPy {
 pub fn show(p: &Problem) -> Result<String, Unsupported> {
     let c = build(p)?;
     Ok(format!("{}{}\nanswer = {}", c.setup, c.task, c.answer))
+}
+
+#[cfg(test)]
+mod nested_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D { funcs: vec![] };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// The forms as the system's own, by golden strings.
+    #[test]
+    fn nested_forms_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            (
+                "integrate(x^2, x, 0, 3)",
+                "sp.integrate(s_x**sp.Integer(2), (s_x, sp.Integer(0), sp.Integer(3)))",
+            ),
+            (
+                "sum(k, k, 1, 4)",
+                "sp.summation(s_k, (s_k, sp.Integer(1), sp.Integer(4)))",
+            ),
+            (
+                "product(k, k, 1, 4)",
+                "sp.product(s_k, (s_k, sp.Integer(1), sp.Integer(4)))",
+            ),
+            (
+                "limit(sin(x)/x, x, 0)",
+                "sp.limit(sp.sin(s_x)/s_x, s_x, sp.Integer(0), dir='+-')",
+            ),
+            (
+                "sum(integrate(x^3, x, 0, k), k, 1, 3)",
+                "sp.summation(sp.integrate(s_x**sp.Integer(3), (s_x, sp.Integer(0), s_k)), (s_k, sp.Integer(1), sp.Integer(3)))",
+            ),
+            (
+                "limit((1 + 1/n)^n, n, infinity)",
+                "sp.limit((sp.Integer(1) + sp.Integer(1)/s_n)**s_n, s_n, sp.oo)",
+            ),
+            (
+                "integrate(exp(-x^2), x, -infinity, infinity)",
+                "sp.integrate(sp.exp(-s_x**sp.Integer(2)), (s_x, -sp.oo, sp.oo))",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
+
+    /// Printed, given to SymPy, the value read back.
+    #[test]
+    fn nested_forms_round_trip() {
+        if roundtrip::run("python3", &["-c", "import sympy"], "").is_none() {
+            return roundtrip::skipped("SymPy");
+        }
+        let mut script = String::from(
+            "import sympy as sp\ns_x = sp.Symbol('x', real=True)\n\
+             s_k = sp.Symbol('k', integer=True)\ns_n = sp.Symbol('n', real=True)\n",
+        );
+        for (neutral, _) in roundtrip::CASES {
+            script += &format!("print('@@', {})\n", print(neutral));
+        }
+        let out = roundtrip::run("python3", &["-c", &script], "").unwrap();
+        let got: Vec<String> = out
+            .lines()
+            .filter_map(|l| l.strip_prefix("@@ ").map(str::to_string))
+            .collect();
+        roundtrip::check("SymPy", &got);
+    }
+
+    /// The limit from both sides: SymPy's own is from the right, where `|x|/x` has 1.
+    #[test]
+    fn a_limit_has_both_sides() {
+        assert!(print("limit(abs(x)/x, x, 0)").ends_with("dir='+-')"));
+        assert!(!print("limit(1/x, x, infinity)").contains("dir"));
+    }
 }

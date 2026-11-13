@@ -8,7 +8,7 @@
 //! lists (`convert(M, listlist)`), as the README says.
 
 use super::{Adapter, MonomialOrder, PolyDomain, conditions, monomial_order, poly_domain, quoted};
-use crate::expr::{Expr, Rel};
+use crate::expr::{Expr, Nested, Rel};
 use crate::print::{Dialect, Out, Printer, Unsupported, diff_args, unsupported};
 use crate::problem::{Assumption, Problem};
 use crate::session::Spec;
@@ -57,6 +57,27 @@ impl Dialect for D {
             format!("(D@@{order})")
         };
         Ok(format!("{d}({name})({})", p.args(args)?.join(", ")))
+    }
+
+    /// `int`, `sum`, `product` over `x = a..b`, `limit` at `x = p` (from both sides): the active
+    /// forms, which work the form out and keep it as itself where they cannot.
+    fn nested(&self, p: &Printer, kind: Nested, body: &Expr, var: &Expr, rest: &[Expr]) -> Out {
+        let (f, x) = (p.print(body)?, p.print(var)?);
+        Ok(match kind {
+            Nested::Limit => format!("limit({f}, {x} = {})", p.print(&rest[0])?),
+            kind => {
+                let name = match kind {
+                    Nested::Integral => "int",
+                    Nested::Sum => "sum",
+                    _ => "product",
+                };
+                format!(
+                    "{name}({f}, {x} = {}..{})",
+                    p.print(&rest[0])?,
+                    p.print(&rest[1])?
+                )
+            }
+        })
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
@@ -203,6 +224,10 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
         "integrate" | "limit" => assume.push(format!("{}::real", var("var")?)),
         "sum" | "product" => assume.push(format!("{}::integer", var("var")?)),
         _ => {}
+    }
+    // and the variable of each nested form the same
+    for (v, fact) in p.nested_variables()? {
+        assume.push(format!("{}::{fact}", pr.print(&Expr::Sym(v))?));
     }
     let mut answer = "mr_r".to_string();
     let listlist = |m: &str| format!("convert({m}, listlist)");
@@ -518,8 +543,17 @@ impl Adapter for Maple {
 /// `kernelopts(version)` says "Maple 2020.2, APPLE UNIVERSAL OSX, Nov 11 2020,
 /// Build ID 1502365": the version is "2020.2"
 fn clean_maple_version(text: &str) -> String {
-    let first = text.split(',').next().unwrap_or(text).trim().trim_matches('"');
-    first.strip_prefix("Maple").unwrap_or(first).trim().to_string()
+    let first = text
+        .split(',')
+        .next()
+        .unwrap_or(text)
+        .trim()
+        .trim_matches('"');
+    first
+        .strip_prefix("Maple")
+        .unwrap_or(first)
+        .trim()
+        .to_string()
 }
 
 #[cfg(test)]
@@ -535,4 +569,44 @@ mod version_tests {
         assert_eq!(clean_maple_version("  Maple 2024.1  "), "2024.1");
         assert_eq!(clean_maple_version("2023.0"), "2023.0");
     }
+}
+
+#[cfg(test)]
+mod nested_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D { funcs: vec![] };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// The forms as the system's own, by golden strings.
+    #[test]
+    fn nested_forms_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            ("integrate(x^2, x, 0, 3)", "int(x^2, x = 0..3)"),
+            ("sum(k, k, 1, 4)", "sum(k, k = 1..4)"),
+            ("product(k, k, 1, 4)", "product(k, k = 1..4)"),
+            ("limit(sin(x)/x, x, 0)", "limit(sin(x)/x, x = 0)"),
+            (
+                "sum(integrate(x^3, x, 0, k), k, 1, 3)",
+                "sum(int(x^3, x = 0..k), k = 1..3)",
+            ),
+            (
+                "limit((1 + 1/n)^n, n, infinity)",
+                "limit((1 + 1/n)^n, n = infinity)",
+            ),
+            (
+                "integrate(exp(-x^2), x, -infinity, infinity)",
+                "int(exp(-x^2), x = -infinity..infinity)",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
+
+    // maple is not installed where this is built: the printing is tested by its golden strings only
 }

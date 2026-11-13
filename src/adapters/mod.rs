@@ -30,6 +30,9 @@ pub mod mathilda;
 pub mod maxima;
 pub mod sympy;
 
+#[cfg(test)]
+mod roundtrip;
+
 pub trait Adapter: Send + Sync {
     /// `system.name` of the upload.
     fn name(&self) -> &'static str;
@@ -215,4 +218,74 @@ pub fn conditions(p: &Problem, key: &str) -> Result<Vec<Condition>, Unsupported>
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod nested_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn problem(expr: &str) -> Problem {
+        Problem::from_json(&json!({
+            "id": "t-1",
+            "category": "special",
+            "problem": {"op": "evaluate", "args": {"expr": expr}}
+        }))
+        .unwrap()
+    }
+
+    /// Every adapter writes a problem with nested forms: the forms printed, their variables
+    /// given what the formats assume of them where the system takes assumptions.
+    #[test]
+    fn every_adapter_takes_nested_forms() {
+        let p = problem(
+            "sum(integrate(x^3, x, 0, k), k, 1, 3) + limit(sin(y)/y, y, 0) + product(j, j, 1, 3)",
+        );
+        for a in all() {
+            let script = a
+                .problem(&p, "n1")
+                .unwrap_or_else(|e| panic!("{}: {e}", a.slug()));
+            let assumed: &[&str] = match a.slug() {
+                "sympy" => &[
+                    "s_k = sp.Symbol('k', integer=True)",
+                    "s_y = sp.Symbol('y', real=True)",
+                    "s_x = sp.Symbol('x', real=True)",
+                ],
+                "mathematica" | "mathilda" => &[
+                    "Element[k, Integers]",
+                    "Element[y, Reals]",
+                    "Element[x, Reals]",
+                ],
+                "maple" => &["k::integer", "y::real", "x::real"],
+                _ => &[],
+            };
+            for want in assumed {
+                assert!(script.contains(want), "{}: {want} in {script}", a.slug());
+            }
+        }
+    }
+
+    /// The indefinite integral, a wrong number of arguments and a variable that is no symbol are
+    /// `unsupported` in every adapter, each with its reason.
+    #[test]
+    fn nested_forms_that_are_not_forms_are_refused() {
+        for (expr, why) in [
+            (
+                "integrate(x^2, x)",
+                "an indefinite integral inside a problem",
+            ),
+            ("sum(k, k, 1)", "sum of 3 arguments inside a problem"),
+            ("limit(x, x, 0, 1)", "limit of 4 arguments inside a problem"),
+            (
+                "integrate(x, 2, 0, 1)",
+                "the variable of integrate inside a problem is not a symbol",
+            ),
+        ] {
+            let p = problem(expr);
+            for a in all() {
+                let e = a.problem(&p, "n1").unwrap_err();
+                assert!(e.0.contains(why), "{}: {expr}: {e}", a.slug());
+            }
+        }
+    }
 }

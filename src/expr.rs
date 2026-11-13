@@ -401,7 +401,94 @@ pub fn parse(text: &str) -> Result<Expr, ParseError> {
     Ok(e)
 }
 
+/// A nested form of the formats' section 3, written as a call inside a problem's expression: an
+/// integral, a sum, a product or a limit, each binding its variable, which the system works out
+/// to a value where the problem is given it. Never in an answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Nested {
+    /// `integrate(f, x, a, b)`.
+    Integral,
+    /// `sum(term, k, a, b)`.
+    Sum,
+    /// `product(term, k, a, b)`.
+    Product,
+    /// `limit(f, x, p)`, from both sides.
+    Limit,
+}
+
+impl Nested {
+    /// What the formats assume of the variable of the form: real for an integral and a limit,
+    /// an integer for a sum and a product.
+    pub fn variable_is(self) -> &'static str {
+        match self {
+            Nested::Integral | Nested::Limit => "real",
+            Nested::Sum | Nested::Product => "integer",
+        }
+    }
+
+    /// The form a call is, where it is one: `Ok(None)` for any other call, an error for a call of
+    /// the name of a form that is not one (`integrate(f, x)`: the indefinite integral is known
+    /// only up to a constant, and has no value inside a problem).
+    pub fn of(name: &str, args: &[Expr]) -> Result<Option<Nested>, String> {
+        let (kind, n) = match name {
+            "integrate" => (Nested::Integral, 4),
+            "sum" => (Nested::Sum, 4),
+            "product" => (Nested::Product, 4),
+            "limit" => (Nested::Limit, 3),
+            _ => return Ok(None),
+        };
+        if name == "integrate" && args.len() == 2 {
+            return Err(
+                "an indefinite integral inside a problem, which is known only up to a \
+                        constant: a nested integral is integrate(f, x, a, b)"
+                    .into(),
+            );
+        }
+        if args.len() != n {
+            return Err(format!(
+                "{name} of {} arguments inside a problem: the nested forms are integrate(f, x, a, \
+                 b), sum(term, k, a, b), product(term, k, a, b) and limit(f, x, p)",
+                args.len()
+            ));
+        }
+        match &args[1] {
+            Expr::Sym(v) if !is_constant(v) => Ok(Some(kind)),
+            _ => Err(format!(
+                "the variable of {name} inside a problem is not a symbol"
+            )),
+        }
+    }
+}
+
 impl Expr {
+    /// The nested forms in the expression with their variables, in order.
+    pub fn nested(&self, out: &mut Vec<(String, Nested)>) {
+        match self {
+            Expr::Call(name, args) => {
+                if let Ok(Some(kind)) = Nested::of(name, args)
+                    && let Some(v) = args[1].as_sym()
+                    && !out.iter().any(|(w, k)| w == v && *k == kind)
+                {
+                    out.push((v.to_string(), kind));
+                }
+                for a in args {
+                    a.nested(out);
+                }
+            }
+            Expr::List(args) | Expr::Prime(_, _, args) => {
+                for a in args {
+                    a.nested(out);
+                }
+            }
+            Expr::Neg(a) | Expr::Not(a) => a.nested(out),
+            Expr::Bin(_, a, b) | Expr::Rel(_, a, b) | Expr::And(a, b) | Expr::Or(a, b) => {
+                a.nested(out);
+                b.nested(out);
+            }
+            Expr::Int(_) | Expr::Dec(_) | Expr::Sym(_) => {}
+        }
+    }
+
     /// Every symbol in the expression, constants left out, in order of
     /// first appearance. Function names are not symbols.
     pub fn symbols(&self, out: &mut Vec<String>) {
