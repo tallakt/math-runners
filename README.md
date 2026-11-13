@@ -255,6 +255,25 @@ Where the formats name no convention, the runner chose (and the checker should k
   `var - point` or, at infinity, of `1/var`; a Puiseux series' fractional powers between
   `order - 1` and `order` are left out by the second kind.
 
+### Nested forms in a problem
+
+A problem's expressions may hold the formats' nested forms (section 3): `integrate(f, x, a, b)`,
+`sum(term, k, a, b)`, `product(term, k, a, b)` and `limit(f, x, p)` (from both sides), each
+binding its variable (real for an integral and a limit, an integer for a sum and a product, as
+the problem's own variable is). The runner writes each as the system's own form, which works it
+out before the task sees it: an indefinite integral, or any other number of arguments, is
+`unsupported`. The form is never an answer: a system that returns one of them unevaluated has
+declined the problem (above).
+
+| system | integral | sum, product | limit |
+|---|---|---|---|
+| SymPy | `integrate(f, (x, a, b))` | `summation(f, (k, a, b))`, `product` | `limit(f, x, p, dir='+-')`, at infinity `limit(f, x, p)` |
+| Maxima | `integrate(f, x, a, b)` | `simplify_sum(sum(f, k, a, b))`; `product` with `simpproduct: true` | `limit(f, x, p)` |
+| FriCAS | `integrate(f, x = a..b)`, the union read as a value | `sum(f, k = a..b)`, `product`; infinite bounds: `unsupported` | `limit(f, x = p)`, the union read as a value (a two-sided record is an error) |
+| Giac | `integrate(f, x, a, b)` | `sum(f, k, a, b)`, `product` | `limit(f, x, p)` |
+| Maple | `int(f, x = a..b)` | `sum(f, k = a..b)`, `product` | `limit(f, x = p)` |
+| Mathematica, Mathilda | `Integrate[f, {x, a, b}, Assumptions -> A]` | `Sum[f, {k, a, b}, Assumptions -> A]`, `Product` | `Limit[f, x -> p, Assumptions -> A]` |
+
 The commands, and the part of the result that is written where it is not the whole:
 
 ### SymPy
