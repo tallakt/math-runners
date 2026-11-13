@@ -78,6 +78,27 @@ pub trait Dialect {
         "^"
     }
 
+    /// A matrix literal of the formats, a list of lists, by rows: the system's matrix where a list
+    /// of lists is not one.
+    fn matrix(&self, rows: &[Vec<String>]) -> Out {
+        Ok(self.list(rows.iter().map(|r| self.list(r.clone())).collect()))
+    }
+
+    /// A list that is a factor of a matrix product, a column vector.
+    fn vector(&self, items: Vec<String>) -> String {
+        self.list(items)
+    }
+
+    /// The product of two matrices, or of a matrix and a column vector, where `*` is not it.
+    fn matmul(&self, a: &str, b: &str) -> String {
+        format!("{a}*{b}")
+    }
+
+    /// A matrix to a power (the inverse is `-1`), where `^` is not it.
+    fn matpow(&self, a: &str, b: &str) -> String {
+        format!("{a}{}{b}", self.pow_op())
+    }
+
     /// A relation, `None` for the infix form `a op b` with `rel_op`.
     fn rel(&self, _r: Rel, _a: &str, _b: &str) -> Option<String> {
         None
@@ -129,6 +150,14 @@ impl<'a> Printer<'a> {
         Ok(if p >= ATOM { s } else { format!("({s})") })
     }
 
+    /// An operand of a matrix product: a list is a column vector, anything else an atom.
+    fn factor(&self, e: &Expr) -> Out {
+        match e {
+            Expr::List(items) if e.matrix_cells().is_none() => Ok(self.d.vector(self.args(items)?)),
+            e => self.atom(e),
+        }
+    }
+
     /// A left operand: parenthesized where it binds looser than `min`.
     fn at_least(&self, e: &Expr, min: u8) -> Out {
         let (s, p) = self.prec(e)?;
@@ -156,7 +185,16 @@ impl<'a> Printer<'a> {
                 None => (d.call(self, name, args)?, ATOM),
             },
             Expr::Prime(name, k, args) => (d.prime(self, name, *k, args)?, ATOM),
-            Expr::List(items) => (d.list(self.args(items)?), ATOM),
+            Expr::List(items) => match e.matrix_cells() {
+                Some(rows) => {
+                    let rows = rows
+                        .iter()
+                        .map(|r| self.args(r))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    (d.matrix(&rows)?, ATOM)
+                }
+                None => (d.list(self.args(items)?), ATOM),
+            },
             Expr::Neg(a) => {
                 if let (Expr::Sym(s), Some(mi)) = (a.as_ref(), d.minus_infinity()) {
                     if s == "infinity" {
@@ -176,6 +214,10 @@ impl<'a> Printer<'a> {
                     format!("{} - {}", self.at_least(a, ADD)?, self.operand(b, MUL)?),
                     ADD,
                 ),
+                // a matrix times a matrix or a list (a column), a list times a matrix
+                Op::Mul if (a.has_matrix() || b.has_matrix()) && !is_scalar(a, b) => {
+                    (d.matmul(&self.factor(a)?, &self.factor(b)?), MUL)
+                }
                 Op::Mul => (
                     format!("{}*{}", self.at_least(a, MUL)?, self.operand(b, NEG)?),
                     MUL,
@@ -184,6 +226,7 @@ impl<'a> Printer<'a> {
                     format!("{}/{}", self.at_least(a, MUL)?, self.operand(b, NEG)?),
                     MUL,
                 ),
+                Op::Pow if a.has_matrix() => (d.matpow(&self.atom(a)?, &self.atom(b)?), POW),
                 Op::Pow => (
                     format!("{}{}{}", self.atom(a)?, d.pow_op(), self.atom(b)?),
                     POW,
@@ -220,6 +263,13 @@ impl<'a> Printer<'a> {
             }
         })
     }
+}
+
+/// Whether one of the factors of a product with a matrix in it is a scalar, so that the product
+/// is the matrix scaled: neither is a list or a matrix.
+fn is_scalar(a: &Expr, b: &Expr) -> bool {
+    let plain = |e: &Expr| !e.has_matrix() && !matches!(e, Expr::List(_));
+    plain(a) || plain(b)
 }
 
 /// Whether an expression is `infinity` or `-infinity`.

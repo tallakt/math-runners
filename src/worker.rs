@@ -198,7 +198,10 @@ impl<'a> Worker<'a> {
 
     fn solve_unscrubbed(&mut self, p: &Problem, timeout: f64) -> Record {
         let nonce = self.next_nonce();
-        let script = match self.adapter.problem(p, &nonce) {
+        let script = match p
+            .check_indexed()
+            .and_then(|()| self.adapter.problem(p, &nonce))
+        {
             Ok(s) => s,
             Err(u) => {
                 let mut r = Record::new(&p.id, "unsupported");

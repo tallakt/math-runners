@@ -57,6 +57,16 @@ impl Dialect for D {
         "**"
     }
 
+    /// `sp.Matrix`, whose `*` and `**` are the matrix product and power; a column vector too.
+    fn matrix(&self, rows: &[Vec<String>]) -> Out {
+        let rows: Vec<String> = rows.iter().map(|r| format!("[{}]", r.join(", "))).collect();
+        Ok(format!("sp.Matrix([{}])", rows.join(", ")))
+    }
+
+    fn vector(&self, items: Vec<String>) -> String {
+        format!("sp.Matrix([{}])", items.join(", "))
+    }
+
     fn rel(&self, r: Rel, a: &str, b: &str) -> Option<String> {
         let f = match r {
             Rel::Eq => "Eq",
@@ -753,5 +763,58 @@ mod nested_tests {
     fn a_limit_has_both_sides() {
         assert!(print("limit(abs(x)/x, x, 0)").ends_with("dir='+-')"));
         assert!(!print("limit(1/x, x, infinity)").contains("dir"));
+    }
+}
+
+#[cfg(test)]
+mod matrix_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D { funcs: vec![] };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// A list of lists is the system's matrix, the product of matrices and of a matrix and a list
+    /// the system's product, the power its matrix power.
+    #[test]
+    fn matrices_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            (
+                "[[1, 2], [3, 4]] * [[0, 1], [1, 0]]",
+                "sp.Matrix([[sp.Integer(1), sp.Integer(2)], [sp.Integer(3), sp.Integer(4)]])*sp.Matrix([[sp.Integer(0), sp.Integer(1)], [sp.Integer(1), sp.Integer(0)]])",
+            ),
+            (
+                "[[1, 2], [3, 4]] * [1, 1]",
+                "sp.Matrix([[sp.Integer(1), sp.Integer(2)], [sp.Integer(3), sp.Integer(4)]])*sp.Matrix([sp.Integer(1), sp.Integer(1)])",
+            ),
+            (
+                "[[1, 2], [3, 4]]^(-1)",
+                "sp.Matrix([[sp.Integer(1), sp.Integer(2)], [sp.Integer(3), sp.Integer(4)]])**(-sp.Integer(1))",
+            ),
+            (
+                "2*[[1, 2], [3, 4]] - [[0, 1], [1, 0]]",
+                "sp.Integer(2)*sp.Matrix([[sp.Integer(1), sp.Integer(2)], [sp.Integer(3), sp.Integer(4)]]) - sp.Matrix([[sp.Integer(0), sp.Integer(1)], [sp.Integer(1), sp.Integer(0)]])",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
+
+    /// Printed, given to SymPy: the products, the inverse and the sum of matrices.
+    #[test]
+    fn matrices_round_trip() {
+        if roundtrip::run("python3", &["-c", "import sympy"], "").is_none() {
+            return roundtrip::skipped("SymPy");
+        }
+        let mut script = String::from("import sympy as sp\n");
+        for (neutral, _) in roundtrip::MATRIX_CASES {
+            script += &format!("print('@@', {})\n", print(neutral));
+        }
+        let out = roundtrip::run("python3", &["-c", &script], "").unwrap();
+        roundtrip::check_matrices("SymPy", &roundtrip::marked(&out));
     }
 }

@@ -172,6 +172,40 @@ impl Problem {
         Ok(out)
     }
 
+    /// A sum or a product, the problem's own or a nested one, whose term has a symbol named for
+    /// its variable (`b_j` under a sum over `j`, `P_js`): an indexed quantity, which the formats
+    /// have no way to write, and as a symbol it would not depend on the variable (the derivative
+    /// of the sum by `b_k` is 0). The problem is not given to a system.
+    pub fn check_indexed(&self) -> Result<(), Unsupported> {
+        let mut terms = Vec::new();
+        if matches!(self.op.as_str(), "sum" | "product")
+            && let (Ok(term), Ok(var)) = (self.expr("term"), self.symbol("var"))
+        {
+            terms.push((term, var));
+        }
+        for (key, v) in &self.args {
+            for e in values_exprs(key, v)? {
+                let mut sums = Vec::new();
+                e.sums(&mut sums);
+                terms.extend(sums.drain(..).map(|(t, v)| (t.clone(), v.to_string())));
+            }
+        }
+        for (term, var) in terms {
+            let mut names = Vec::new();
+            term.symbols(&mut names);
+            if let Some(n) = names.iter().find(|n| {
+                n.split_once('_')
+                    .is_some_and(|(head, sub)| !head.is_empty() && sub.starts_with(&var))
+            }) {
+                return unsupported(format!(
+                    "the symbol {n} in a sum or product over {var} looks indexed by {var}: the \
+                     runner has no indexed quantities, and as a symbol it would not depend on {var}"
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// The unknown functions: `function`, `functions`, as `y(x)`, with the
     /// names of their arguments.
     pub fn unknown_functions(&self) -> Result<Vec<(String, Vec<String>)>, Unsupported> {

@@ -489,6 +489,33 @@ impl Expr {
         }
     }
 
+    /// The sums and products in the expression, each its term and its variable, in order.
+    pub fn sums<'a>(&'a self, out: &mut Vec<(&'a Expr, &'a str)>) {
+        match self {
+            Expr::Call(name, args) => {
+                if matches!(name.as_str(), "sum" | "product")
+                    && let [term, Expr::Sym(v), _, _] = args.as_slice()
+                {
+                    out.push((term, v));
+                }
+                for a in args {
+                    a.sums(out);
+                }
+            }
+            Expr::List(args) | Expr::Prime(_, _, args) => {
+                for a in args {
+                    a.sums(out);
+                }
+            }
+            Expr::Neg(a) | Expr::Not(a) => a.sums(out),
+            Expr::Bin(_, a, b) | Expr::Rel(_, a, b) | Expr::And(a, b) | Expr::Or(a, b) => {
+                a.sums(out);
+                b.sums(out);
+            }
+            Expr::Int(_) | Expr::Dec(_) | Expr::Sym(_) => {}
+        }
+    }
+
     /// Every symbol in the expression, constants left out, in order of
     /// first appearance. Function names are not symbols.
     pub fn symbols(&self, out: &mut Vec<String>) {
@@ -524,6 +551,34 @@ impl Expr {
             Expr::Int(n) => n.parse().ok(),
             Expr::Neg(a) => a.as_int().map(|n| -n),
             _ => None,
+        }
+    }
+
+    /// The cells of a matrix, as the formats write one (section 3): a list of lists of one length,
+    /// by rows.
+    pub fn matrix_cells(&self) -> Option<Vec<&[Expr]>> {
+        let Expr::List(rows) = self else {
+            return None;
+        };
+        let mut out = Vec::new();
+        for row in rows {
+            match row {
+                Expr::List(cells) if !cells.is_empty() => out.push(cells.as_slice()),
+                _ => return None,
+            }
+        }
+        let width = out.first()?.len();
+        out.iter().all(|r| r.len() == width).then_some(out)
+    }
+
+    /// Whether the expression has a matrix as an operand: one itself, or a sum, product, power,
+    /// quotient or negation of one.
+    pub fn has_matrix(&self) -> bool {
+        match self {
+            Expr::List(_) => self.matrix_cells().is_some(),
+            Expr::Neg(a) => a.has_matrix(),
+            Expr::Bin(_, a, b) => a.has_matrix() || b.has_matrix(),
+            _ => false,
         }
     }
 

@@ -48,6 +48,25 @@ impl Dialect for D {
         Some("minf".into())
     }
 
+    /// `matrix([a, b], [c, d])`, `.` the matrix product and `^^` the matrix power.
+    fn matrix(&self, rows: &[Vec<String>]) -> Out {
+        let rows: Vec<String> = rows.iter().map(|r| format!("[{}]", r.join(", "))).collect();
+        Ok(format!("matrix({})", rows.join(", ")))
+    }
+
+    fn vector(&self, items: Vec<String>) -> String {
+        let rows: Vec<String> = items.iter().map(|i| format!("[{i}]")).collect();
+        format!("matrix({})", rows.join(", "))
+    }
+
+    fn matmul(&self, a: &str, b: &str) -> String {
+        format!("{a} . {b}")
+    }
+
+    fn matpow(&self, a: &str, b: &str) -> String {
+        format!("{a}^^{b}")
+    }
+
     fn rel_op(&self, r: Rel) -> &'static str {
         match r {
             Rel::Ne => "#",
@@ -663,5 +682,59 @@ mod nested_tests {
             .filter_map(|l| l.strip_prefix("@@ ").map(|v| v.trim().to_string()))
             .collect();
         roundtrip::check("Maxima", &got);
+    }
+}
+
+#[cfg(test)]
+mod matrix_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D {
+            funcs: vec![],
+            form: FnForm::Call,
+        };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// A list of lists is the system's matrix, the product of matrices and of a matrix and a list
+    /// the system's product, the power its matrix power.
+    #[test]
+    fn matrices_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            (
+                "[[1, 2], [3, 4]] * [[0, 1], [1, 0]]",
+                "matrix([1, 2], [3, 4]) . matrix([0, 1], [1, 0])",
+            ),
+            (
+                "[[1, 2], [3, 4]] * [1, 1]",
+                "matrix([1, 2], [3, 4]) . matrix([1], [1])",
+            ),
+            ("[[1, 2], [3, 4]]^(-1)", "matrix([1, 2], [3, 4])^^(-1)"),
+            (
+                "2*[[1, 2], [3, 4]] - [[0, 1], [1, 0]]",
+                "2*matrix([1, 2], [3, 4]) - matrix([0, 1], [1, 0])",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
+
+    /// Printed, given to Maxima: the products, the inverse and the sum of matrices.
+    #[test]
+    fn matrices_round_trip() {
+        if roundtrip::run("maxima", &["--version"], "").is_none() {
+            return roundtrip::skipped("Maxima");
+        }
+        let mut script = String::from("display2d: false$ ");
+        for (neutral, _) in roundtrip::MATRIX_CASES {
+            script += &format!("print(\"@@\", {})$ ", print(neutral));
+        }
+        let out =
+            roundtrip::run("maxima", &["--very-quiet", "--batch-string", &script], "").unwrap();
+        roundtrip::check_matrices("Maxima", &roundtrip::marked(&out));
     }
 }

@@ -522,3 +522,36 @@ mod nested_tests {
 
     // giac is not installed where this is built: the printing is tested by its golden strings only
 }
+
+#[cfg(test)]
+mod matrix_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D { funcs: vec![] };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// A list of lists is the system's matrix, the product of matrices and of a matrix and a list
+    /// the system's product, the power its matrix power.
+    #[test]
+    fn matrices_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            (
+                "[[1, 2], [3, 4]] * [[0, 1], [1, 0]]",
+                "[[1, 2], [3, 4]]*[[0, 1], [1, 0]]",
+            ),
+            ("[[1, 2], [3, 4]] * [1, 1]", "[[1, 2], [3, 4]]*[1, 1]"),
+            ("[[1, 2], [3, 4]]^(-1)", "[[1, 2], [3, 4]]^(-1)"),
+            (
+                "2*[[1, 2], [3, 4]] - [[0, 1], [1, 0]]",
+                "2*[[1, 2], [3, 4]] - [[0, 1], [1, 0]]",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
+}

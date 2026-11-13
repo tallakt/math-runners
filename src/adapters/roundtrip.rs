@@ -51,3 +51,69 @@ pub fn check(system: &str, got: &[String]) {
 pub fn skipped(system: &str) {
     eprintln!("nested forms round trip skipped: {system} is not installed here");
 }
+
+/// Matrices as neutral text, and the numbers of each value, row by row.
+pub const MATRIX_CASES: &[(&str, &[&str])] = &[
+    ("[[1, 2], [3, 4]] * [[0, 1], [1, 0]]", &["2", "1", "4", "3"]),
+    ("[[1, 2], [3, 4]] * [1, 1]", &["3", "7"]),
+    ("[[1, 2], [3, 4]]^(-1)", &["-2", "1", "3/2", "-1/2"]),
+    (
+        "2*[[1, 2], [3, 4]] - [[0, 1], [1, 0]]",
+        &["2", "3", "5", "8"],
+    ),
+];
+
+/// The numbers of a text (`-3`, `3/2`), in order, parentheses left out.
+pub fn numbers(text: &str) -> Vec<String> {
+    // `(-1)/2` and `-(1/2)` are `-1/2`
+    let text = text.replace(['(', ')'], "");
+    let mut out = Vec::new();
+    let b = text.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i].is_ascii_digit() {
+            let start = if i > 0 && b[i - 1] == b'-' { i - 1 } else { i };
+            while i < b.len() && b[i].is_ascii_digit() {
+                i += 1;
+            }
+            if i + 1 < b.len() && b[i] == b'/' && b[i + 1].is_ascii_digit() {
+                i += 1;
+                while i < b.len() && b[i].is_ascii_digit() {
+                    i += 1;
+                }
+            }
+            out.push(text[start..i].to_string());
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Compares the values read, one for each case, with the cases' numbers.
+pub fn check_matrices(system: &str, got: &[String]) {
+    assert_eq!(got.len(), MATRIX_CASES.len(), "{system}: {got:?}");
+    for ((neutral, want), got) in MATRIX_CASES.iter().zip(got) {
+        assert_eq!(numbers(got), *want, "{system}: {neutral}: {got}");
+    }
+}
+
+/// The lines `@@ value` of an output, the values.
+pub fn marked(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .filter_map(|l| l.strip_prefix("@@ ").map(|v| v.trim().to_string()))
+        .collect()
+}
+
+/// The values FriCAS printed for `unparse` lines: `   (n)  "value"`.
+pub fn fricas_strings(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .filter_map(|l| {
+            let (head, rest) = l.trim().split_once(")  ")?;
+            let value = rest.strip_prefix('"')?.strip_suffix('"')?;
+            head.starts_with('(').then(|| value.to_string())
+        })
+        .collect()
+}

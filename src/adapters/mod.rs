@@ -288,4 +288,40 @@ mod nested_tests {
             }
         }
     }
+
+    /// A matrix is a list of lists, a column a list among the factors of a matrix product: every
+    /// adapter writes them.
+    #[test]
+    fn every_adapter_takes_matrices() {
+        let p = problem("[[a, b], [c, d]] * [[1, 0], [0, 1]] * [x, y] + 2*[x, y]");
+        for a in all() {
+            a.problem(&p, "n1")
+                .unwrap_or_else(|e| panic!("{}: {e}", a.slug()));
+        }
+    }
+
+    /// An indexed quantity under a sum or a product is refused (the worker does it before the
+    /// adapter): `b_j` over `j`, in a nested form and in a sum of the problem's own.
+    #[test]
+    fn indexed_quantities_are_refused() {
+        let nested = problem("diff(sum(b_j^2/c_j, j, 1, K), b_k)");
+        let why = nested.check_indexed().unwrap_err();
+        assert!(
+            why.0.contains("b_j") && why.0.contains("looks indexed by j"),
+            "{why}"
+        );
+        let own = Problem::from_json(&json!({
+            "id": "t-2",
+            "category": "sum",
+            "problem": {"op": "sum", "args": {"term": "y_k*x^k", "var": "k", "from": "1", "to": "n"}}
+        }))
+        .unwrap();
+        assert!(own.check_indexed().is_err());
+        // k_B is a constant of its own, a_i is not indexed by k
+        assert!(
+            problem("sum(k_B*j + a_i*j^2, j, 1, 3)")
+                .check_indexed()
+                .is_ok()
+        );
+    }
 }

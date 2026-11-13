@@ -43,6 +43,21 @@ impl Dialect for D {
         })
     }
 
+    /// `Matrix([[a, b], [c, d]])`, `Vector([a, b])` for a column, `.` the matrix product; `^` is
+    /// the matrix power.
+    fn matrix(&self, rows: &[Vec<String>]) -> Out {
+        let rows: Vec<String> = rows.iter().map(|r| format!("[{}]", r.join(", "))).collect();
+        Ok(format!("Matrix([{}])", rows.join(", ")))
+    }
+
+    fn vector(&self, items: Vec<String>) -> String {
+        format!("Vector([{}])", items.join(", "))
+    }
+
+    fn matmul(&self, a: &str, b: &str) -> String {
+        format!("{a} . {b}")
+    }
+
     fn rel_op(&self, r: Rel) -> &'static str {
         match r {
             Rel::Ne => "<>",
@@ -609,4 +624,40 @@ mod nested_tests {
     }
 
     // maple is not installed where this is built: the printing is tested by its golden strings only
+}
+
+#[cfg(test)]
+mod matrix_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D { funcs: vec![] };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// A list of lists is the system's matrix, the product of matrices and of a matrix and a list
+    /// the system's product, the power its matrix power.
+    #[test]
+    fn matrices_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            (
+                "[[1, 2], [3, 4]] * [[0, 1], [1, 0]]",
+                "Matrix([[1, 2], [3, 4]]) . Matrix([[0, 1], [1, 0]])",
+            ),
+            (
+                "[[1, 2], [3, 4]] * [1, 1]",
+                "Matrix([[1, 2], [3, 4]]) . Vector([1, 1])",
+            ),
+            ("[[1, 2], [3, 4]]^(-1)", "Matrix([[1, 2], [3, 4]])^(-1)"),
+            (
+                "2*[[1, 2], [3, 4]] - [[0, 1], [1, 0]]",
+                "2*Matrix([[1, 2], [3, 4]]) - Matrix([[0, 1], [1, 0]])",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
 }

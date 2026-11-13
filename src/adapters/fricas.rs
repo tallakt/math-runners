@@ -46,6 +46,18 @@ impl Dialect for D {
         Some("%minusInfinity".into())
     }
 
+    /// `matrix([[a, b], [c, d]])`, whose `*` and `^` are the matrix product and power; a column
+    /// vector is a matrix of one column.
+    fn matrix(&self, rows: &[Vec<String>]) -> Out {
+        let rows: Vec<String> = rows.iter().map(|r| format!("[{}]", r.join(", "))).collect();
+        Ok(format!("matrix([{}])", rows.join(", ")))
+    }
+
+    fn vector(&self, items: Vec<String>) -> String {
+        let rows: Vec<String> = items.iter().map(|i| format!("[{i}]")).collect();
+        format!("matrix([{}])", rows.join(", "))
+    }
+
     fn rel_op(&self, r: Rel) -> &'static str {
         match r {
             Rel::Ne => "~=",
@@ -657,5 +669,56 @@ mod nested_tests {
         let e = parse("sum(1/2^k, k, 0, infinity)").unwrap();
         let why = Printer::new(&d).print(&e).unwrap_err();
         assert!(why.0.contains("infinite bounds"), "{why}");
+    }
+}
+
+#[cfg(test)]
+mod matrix_tests {
+    use super::*;
+    use crate::adapters::roundtrip;
+    use crate::expr::parse;
+
+    fn print(text: &str) -> String {
+        let d = D { funcs: vec![] };
+        Printer::new(&d).print(&parse(text).unwrap()).unwrap()
+    }
+
+    /// A list of lists is the system's matrix, the product of matrices and of a matrix and a list
+    /// the system's product, the power its matrix power.
+    #[test]
+    fn matrices_are_printed() {
+        let golden: &[(&str, &str)] = &[
+            (
+                "[[1, 2], [3, 4]] * [[0, 1], [1, 0]]",
+                "matrix([[1, 2], [3, 4]])*matrix([[0, 1], [1, 0]])",
+            ),
+            (
+                "[[1, 2], [3, 4]] * [1, 1]",
+                "matrix([[1, 2], [3, 4]])*matrix([[1], [1]])",
+            ),
+            ("[[1, 2], [3, 4]]^(-1)", "matrix([[1, 2], [3, 4]])^(-1)"),
+            (
+                "2*[[1, 2], [3, 4]] - [[0, 1], [1, 0]]",
+                "2*matrix([[1, 2], [3, 4]]) - matrix([[0, 1], [1, 0]])",
+            ),
+        ];
+        for (neutral, want) in golden {
+            assert_eq!(&print(neutral), want, "{neutral}");
+        }
+    }
+
+    /// Printed, given to FriCAS: the products, the inverse and the sum of matrices.
+    #[test]
+    fn matrices_round_trip() {
+        if roundtrip::run("fricas", &["-nosman", "-noclef", "-nox"], ")quit\n").is_none() {
+            return roundtrip::skipped("FriCAS");
+        }
+        let mut input = String::new();
+        for (neutral, _) in roundtrip::MATRIX_CASES {
+            input += &format!("unparse(({})::InputForm)\n", print(neutral));
+        }
+        input += ")quit\n";
+        let out = roundtrip::run("fricas", &["-nosman", "-noclef", "-nox"], &input).unwrap();
+        roundtrip::check_matrices("FriCAS", &roundtrip::fricas_strings(&out));
     }
 }
