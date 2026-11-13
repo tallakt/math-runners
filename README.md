@@ -274,6 +274,26 @@ declined the problem (above).
 | Maple | `int(f, x = a..b)` | `sum(f, k = a..b)`, `product` | `limit(f, x = p)` |
 | Mathematica, Mathilda | `Integrate[f, {x, a, b}, Assumptions -> A]` | `Sum[f, {k, a, b}, Assumptions -> A]`, `Product` | `Limit[f, x -> p, Assumptions -> A]` |
 
+A sum or product (nested or the problem's own) whose term has a symbol named for its variable
+(`b_j` under a sum over `j`) is `unsupported`: an indexed quantity cannot be written, and as a
+symbol it would not depend on `j`.
+
+### Matrices in a problem
+
+A list of lists of one length in an expression is a matrix (section 3), and a list among the
+factors of a product with a matrix in it a column vector; the runner writes the system's own matrix
+and its product, so that `[[1, 2], [3, 4]] * [1, 1]` is the matrix times the column and not a
+product of lists:
+
+| system | matrix | column | product | power |
+|---|---|---|---|---|
+| SymPy | `Matrix([[1, 2], [3, 4]])` | `Matrix([a, b])` | `*` | `**` |
+| Maxima | `matrix([1, 2], [3, 4])` | `matrix([a], [b])` | `.` | `^^` |
+| FriCAS | `matrix([[1, 2], [3, 4]])` | `matrix([[a], [b]])` | `*` | `^` |
+| Giac | `[[1, 2], [3, 4]]` | `[a, b]` | `*` | `^` |
+| Maple | `Matrix([[1, 2], [3, 4]])` | `Vector([a, b])` | `.` | `^` |
+| Mathematica, Mathilda | `{{1, 2}, {3, 4}}` | `{a, b}` | `.` | `MatrixPower[m, n]` |
+
 The commands, and the part of the result that is written where it is not the whole:
 
 ### SymPy
