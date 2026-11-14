@@ -13,6 +13,7 @@ One binary has an adapter for each system:
 | Maxima | `maxima` | `maxima` | Maxima 5.50.0 (SBCL), macOS; Maxima 5.47.0 (GCL, Debian trixie), Linux |
 | FriCAS | `fricas` | `fricas` | FriCAS 1.4.0 (SBCL), macOS; FriCAS 1.3.11 (GCL, Debian trixie), Linux |
 | Giac | `giac` | `giac` (or `icas`) | Giac 1.9.0.93 (Debian trixie), Linux |
+| Julia | `julia` | `julia` (Symbolics.jl and SymbolicIntegration.jl, the versions of `julia/Manifest.toml`) | Julia 1.12.6, Symbolics 7.49.0, SymbolicIntegration 3.8.1, macOS |
 | Maple | `maple` | `maple` | **not run**: written from the documentation, see below |
 | Mathematica | `mathematica` | `wolfram` (or `math`, `WolframKernel`) | **not run**: written from the documentation |
 | Mathilda | `mathilda` | `Mathilda` | **not run**: the Mathematica adapter's problems, from Mathilda's user documentation |
@@ -42,6 +43,18 @@ Install the system you run, so that its program is on the `PATH`, or give the pr
 - **FriCAS**: `fricas` (Homebrew: `brew install fricas`; Debian: `apt install fricas`).
 - **Giac**: the command-line `giac` of the `xcas` package (Debian, Ubuntu), or Bernard Parisse's
   builds.
+- **Julia**: `sh scripts/julia-setup.sh [path/to/math-run]` installs juliaup and Julia 1.12.6, and
+  the packages of `julia/Project.toml` and `julia/Manifest.toml` (Symbolics, SymbolicIntegration,
+  SpecialFunctions, Nemo, Groebner, at exactly those versions, and the warm-up package
+  `julia/MathRunWarmup`, see the Julia section) as Julia's shared environment `math-run`,
+  instantiated and precompiled, and then gives Julia one problem. By hand: `curl -fsSL
+  https://install.julialang.org | sh`, `juliaup add 1.12.6`, copy `julia/Project.toml`,
+  `julia/Manifest.toml` and `julia/MathRunWarmup/` into `~/.julia/environments/math-run/`, and
+  `julia --project=@math-run -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'`. The precompile
+  takes long: on the Mac (Apple silicon, at low priority) 24 minutes for the packages and 11 for
+  the warm-up. The runner starts `julia --project=@math-run`; set `JULIA_PROJECT` to use another
+  environment. Each `--jobs` is a Julia process of its own, one thread, about 1.2 GB after the
+  start, more as it works: give each job a physical core and 4 GB (`--memory-gb 4`).
 - **Maple**: the `maple` command-line script of your Maple installation, as
   `/Applications/Maple 2023/maple` on macOS.
 - **Mathematica**: the command-line kernel, `wolfram` (Wolfram Engine, Mathematica).
@@ -119,6 +132,7 @@ takes a day or less, the most of it the problems that time out.
 | Maxima | `kill(all)`, `reset()` | `elapsed_run_time()`, `elapsed_real_time()` |
 | FriCAS | `)clear all` | the Lisp's `get-internal-run-time`, `get-internal-real-time` |
 | Giac | `restart` | none: the runner's, see above |
+| Julia | a new module | C's `clock()`, `time_ns()` |
 | Maple | `restart` | `time()`, `time[real]()` |
 | Mathematica | `ClearAll["Global`*"]`, `ClearSystemCache[]` | `TimeUsed[]`, `AbsoluteTime[]` |
 
@@ -142,6 +156,8 @@ of the library too: a problem's time in Maple includes reading the library's pro
     cannot do otherwise comes back as `integral(...)`.
   - **Giac**: the problem returned unevaluated (`integrate(...)`, `desolve(...)`); what Giac
     prints as an error stays `error`.
+  - **Julia**: `nothing`, the value by which Symbolics' solvers (`symbolic_solve`,
+    `inverse_laplace`, ...) say they cannot solve the problem, written `nothing`.
   - **Maple**: `FAIL`, and the unevaluated `int(...)`, `DESol(...)`.
   - **Mathematica**: `$Failed`, and the unevaluated `Integrate[...]`, `DSolve[...]`.
 - `timeout`: it ran out of time.
@@ -358,6 +374,52 @@ The answer is `string(result)`.
 
 Giac prints its prompts on its standard output and `print` on its standard error; the adapter
 starts it as `sh -c 'exec giac --sage 2>&1'`. Set `GIAC_THREADS=1` to keep it to one core.
+
+### Julia
+
+The runner writes Julia code for Symbolics.jl, which a small driver (`src/adapters/julia_driver.jl`)
+runs in a fresh module. Julia compiles each function at its first call, which takes minutes for
+the solvers (two minutes for `laplace_solve_ode` alone): the environment's package
+`julia/MathRunWarmup` runs a small problem of each op when it is precompiled, so that Julia keeps
+their compiled code, and the driver loads it and runs the same problems again before the
+calibration problems. A session so starts in about a minute (54 s on the Mac at low priority; 11
+minutes without the package), and a problem's time is of its work, but for a function that no
+earlier problem used, which is compiled within its problem's time. A start may take 15 minutes
+before the runner gives up (`math-run version -s julia` shows it). The numbers are given exactly
+as Symbolics keeps them: `1/2` as Julia's `1//2`, `sqrt(2)` as `sqrt(Num(2))`, `2^(1/3)` as
+Symbolics' term of it (Julia computes all three in floats otherwise), rational arithmetic in big
+integers. Symbolics has no assumptions: the problems are given without them, the symbols
+Symbolics' own (real). The answer is read from Symbolics' expression tree, each Julia function by
+its module and name (`SpecialFunctions.besselj` is `bessel_j`), and written in the neutral syntax
+of the formats (section 3); an answer with a function that has no form there is `error`, with the
+function in the message (as Symbolics' undocumented `ssqrt`, `scbrt`, `slog` of its solvers, and
+`roots_of`). SymbolicIntegration's integral that it cannot do comes back as `∫(f, x)`, written
+`integrate(f, x)`; symbolic_solve's integer of a periodic family, an anonymous variable, is written
+`k` with `element(k, integers)`. Julia's own floats are written as they are (`taylor` rationalizes
+its float coefficients, its default; `simplify` may turn `π` into 3.14159...).
+
+| op | command | written |
+|---|---|---|
+| integrate | `SymbolicIntegration.integrate(f, x)` (Risch, then rules) | definite integrals: `unsupported` |
+| solve_ode | one equation: `symbolic_solve_ode(eq, y, x)` (the function a plain variable `y`); with the initial values `y(0), y'(0), ...` up to the order, `laplace_solve_ode(eq, y, x, [values])` | `y(x) = ...`; a system, or other conditions: `unsupported` |
+| limit | `limit(f, x, a, :right/:left/:both)`, of the expressions unwrapped (documented for `log`, `exp` and `+ - * /`; another function is Julia's error) | |
+| series | `taylor(f, x, a, 0:order - 1)` | at infinity, or `order <= 0`: `unsupported` |
+| laplace, inverse_laplace | `laplace(f, f(t), t, F(s), s)`, `inverse_laplace(F, F(s), s, f(t), t)` | |
+| solve | `symbolic_solve(eq, x)`, `symbolic_solve([eqs], [vars])` (over the complex numbers: Symbolics has no real domain) | `[[x = ...], ...]`; inequalities: `unsupported` |
+| simplify, evaluate | `simplify`, `simplify(expand_derivatives(f))` | |
+| partial_fractions | `partial_frac_decomposition(f, x)` | |
+| factor, gcd, lcm | Nemo's `factor`, `gcd`, `lcm` in `polynomial_ring(QQ, [symbols])` (Symbolics has none) | not a polynomial with rational coefficients, or the Gaussian domain: `unsupported` |
+| resultant, discriminant | Nemo's `resultant`, `discriminant` in `R[x]`, R the polynomial ring of the other symbols | |
+| groebner | `groebner_basis(ps, ordering = Groebner.Lex/DegLex/DegRevLex(vars...))` | |
+| minimal_polynomial | Nemo's `minpoly(QQ[x], a)` of the algebraic number in `algebraic_closure(QQ)`: rationals, radicals, `cospi`, `sinpi` | another number (pi, e, gamma(1/4)): `unsupported` |
+| determinant, inverse | Julia's `det`, `inv` of a matrix of Symbolics' numbers (exact) | a determinant with `power`: `unsupported` |
+| rank, nullspace | Nemo's `rank`, `nullspace` of a matrix of rationals (Symbolics has none) | symbolic entries: `unsupported`; the null space the columns of Nemo's basis |
+| solve_linear | `symbolic_linear_solve(M * v .~ b, v)` | as many equations as unknowns only |
+| eigenvalues, eigenvectors, jordan_form, matrix_power | | `unsupported`: Symbolics has none |
+| sum, product, solve_recurrence, solve_pde, fourier, mellin, z_transform and their inverses, hyperexpand, holds | | `unsupported`: Symbolics has none |
+
+Numeric-fitting integrators (SymbolicNumericIntegration.jl) are not used: a fit is not a solution.
+Nor are Symbolics' bridges to SymPy (`sympy_integrate`, ...), which would run SymPy, not Julia.
 
 ### Maple (untested)
 

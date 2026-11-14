@@ -1,88 +1,78 @@
-# Julia adapter: status (work in progress)
+# Julia: what the site needs (for the osp.no session)
 
-Branch `julia` in `~/mr-julia`. This note is for the next session and for the osp.no session. Do not
-deploy anything to the site from it yet.
+Branch `julia` of math-runners (`~/mr-julia`). Not merged into main and not pushed. The site
+change is deployed only on the user's word.
 
-## Where it stands
+## The runner
 
-- `src/adapters/julia.rs`: `--system julia`, default command `julia`. It translates the neutral
-  expressions into Symbolics code that a driver runs (`julia_driver.jl`, a persistent session, a
-  fresh module per problem, `clock()` for CPU time and `time_ns()` for wall time). Before the
-  ready line, the driver warms up on one small problem per op, using the adapter's own code.
-- `src/adapters/julia_read.rs`: Julia's answers read back into the neutral syntax. The driver
-  prints Symbolics' expression tree as JSON. Rust maps each Julia function, by module and name, to
-  the neutral function that is the same function. Any other function makes the answer
-  unreadable, an `error` with the reason; nothing is guessed. Symbolics' decline value, `nothing`,
-  is written as `nothing`.
-- `Adapter::read_answer`, a fallible version of `clean_answer`, is added in `mod.rs` and used by
-  `worker.rs`. `main.rs` routes `translate` to `julia::show` and has `julia` in the help text.
-- `cargo test`: 35 pass, including the Julia translation tests in both directions.
-- **Not yet run against Julia.** The test environment is `~/math-runs/julia-test/env` (use
-  `JULIA_PROJECT` to select it). It has Symbolics 7.49.0. The second `Pkg.add` (SpecialFunctions,
-  Nemo, Groebner, SymbolicIntegration 3.8.1) was resolved, then stopped during precompile. Run it
-  again with `nice -n 19 taskpolicy -b`.
+- `math-run run -s julia`, `system.name` `Julia`. The version reads like
+  `1.12.6, Symbolics 7.49.0, SymbolicIntegration 3.8.1`, so `math-run version -s julia` prints
+  `Julia 1.12.6, Symbolics 7.49.0, SymbolicIntegration 3.8.1`.
+- Packages are pinned in `julia/Project.toml` and `julia/Manifest.toml`: Symbolics 7.49.0,
+  SymbolicUtils 4.56.1, SymbolicIntegration 3.8.1, Nemo 0.56.2, Groebner 0.10.11,
+  SpecialFunctions 2.9.2. They are installed by `scripts/julia-setup.sh` as Julia's shared
+  environment `math-run`.
+- The user approved SymbolicIntegration.jl (Risch and rules) for indefinite integrals. Numeric
+  fitting (SymbolicNumericIntegration.jl and the like) is left out entirely, on the user's
+  decision: a fit is not a solution. So are the `sympy_*` bridges, which would run SymPy.
+- Nemo, which Symbolics' solvers need, also answers some ops Symbolics lacks: factor, gcd, lcm,
+  resultant, discriminant, the minimal polynomial (QQBar), and rank and null space of rational
+  matrices.
 
-## Seen in Julia 1.12.6 with Symbolics 7.49.0
+## §5.5 line (draft)
 
-These results come from short scripts. Package source was not read.
+| system | `system.name` | the answer as | example |
+|---|---|---|---|
+| Julia | `Julia` | the neutral syntax of section 3, which the runner writes from Symbolics' expression tree, each Julia function by the neutral function that is the same; `nothing` is Symbolics' decline | `exp(x^2)` |
 
-- `sqrt(Num(2))`, `exp(Num(1))`, `sin(Num(π)/6)` and `Num(π)^2` stay symbolic.
-  `Num(1)/Num(2)` gives `1//2`.
-- `Num(2)^(1//3)` becomes the float 1.2599, and `Num(-8)^(1//3)` throws a DomainError. So
-  `2^(1/3)` is sent as `SymbolicUtils.term(^, 2, 1//3)` (`Main.mr_pow`).
-- `Num(2)^70` wraps to 0. Rational arithmetic is therefore done in BigInt (`Main.mr_q`).
-- In a tree, a number such as π or 2 is a Const: test `isconst` before `iscall`, then use
-  `unwrap_const`. The driver does this. Bind `SymbolicUtils = Symbolics.SymbolicUtils`, because it
-  is not a direct dependency.
-- Install pulls in HypergeometricFunctions, which turns on Symbolics' hypergeometric extension.
-  Check what that registers before keeping hyperexpand unsupported.
+What the checker needs:
 
-## Next
+- **Read the answers with the neutral parser**, the one it uses for the suite's own answers. No
+  new dialect is needed.
+- **Grade `nothing` as unsolved.** It is the value by which Symbolics' solvers (`symbolic_solve`,
+  `inverse_laplace`, ...) say they cannot solve a problem, a decline.
+- **Grade an unevaluated `integrate(f, x)` as unsolved**, the problem returned as other systems
+  return it. It is SymbolicIntegration's `∫(f, x)`.
+- **Expect Julia's own floats** in some answers, written as decimals:
+  - `0.8862269254527579*erf(x)` from the integrator;
+  - `6.283185307179586*k` for a periodic family of solutions;
+  - `infinity` coefficients in a series at a pole.
+- **Expect wrong rationals from `taylor`.** Its default rationalizes float coefficients, so e at
+  x = 1 is written `240630938/88523175`. The checker should grade such answers as they are.
+- **Read `[[x = 6.283185307179586*k, element(k, integers)]]`.** symbolic_solve's integer of a
+  periodic family is an anonymous variable, which the runner names `k`, bound by
+  `element(k, integers)`.
 
-1. Finish the install. Start a persistent experiment session (the script is in the scratchpad,
-   `jl/server.jl`). Check the following:
-   - Registered functions: run `math-run functions -s julia`.
-   - SymbolicIntegration's result when it fails.
-   - `symbolic_solve_ode` with a plain dependent variable, and `laplace_solve_ode` with
-     `@syms y(x)::Real`.
-   - `limit`, `taylor` (do the coefficients stay exact?), `laplace` and `inverse_laplace`.
-   - `symbolic_solve` periodic roots and `roots_of`.
-   - The names of `slog`, `ssqrt` and the C₁ constants.
-2. Fill in `polynomial()` and `linear_algebra()`, which are stubs that return unsupported. Look
-   at the docstrings for factor, gcd, `groebner_basis` orderings, det, inv, rank and nullspace on
-   `Matrix{Num}`, and `symbolic_linear_solve`.
-3. Add any function names that Julia's answers actually use to the reader table.
-4. Run `math-run version -s julia`. Then run the quick set with `--jobs 2` at low priority,
-   writing to `~/math-runs/julia-test/julia-quick.jsonl`. Fix the adapter's faults.
-5. Write the README: the adapters row, install steps, the reset/clock row and the Julia section.
-   Then finish this note for the site.
+An answer with a Julia function that has no neutral counterpart is written as `error`, with the
+function named in the message. Examples are `PolyLog.reli`, Symbolics' undocumented
+`ssqrt`/`scbrt`/`slog`, and `roots_of`.
 
-## Ops
+## The quick set on the Mac
 
-Integrate (indefinite only) uses SymbolicIntegration.jl (JuliaSymbolics; Risch and rules, no
-numeric fitting). This choice needs your decision: without it, integrate is unsupported.
+Run with `--jobs 2` at low priority. The results are in `~/math-runs/julia-test/julia-quick.jsonl`;
+the summary is in the final report.
 
-These are unsupported:
+## The rented server
 
-- definite integrals
-- PDEs, sums, products, recurrences
-- Fourier, Mellin and z-transforms
-- inequalities, holds, hyperexpand
-- ODE systems
-- ODE conditions other than the full set of initial values at 0
-- series at infinity, or with order ≤ 0
+`sh scripts/julia-setup.sh /path/to/math-run` does the following:
 
-Real-domain `solve` is given to `symbolic_solve`, which works over the complex numbers.
-Symbolics has no assumptions, so the problem's assumptions are left out.
+1. Installs juliaup and Julia 1.12.6.
+2. Copies `julia/` into `~/.julia/environments/math-run`.
+3. Instantiates the Manifest and precompiles it. This includes `MathRunWarmup`, which compiles a
+   small problem of each op into the package images.
+4. Runs `math-run version -s julia` and one problem as a smoke test.
 
-Numeric-fitting packages (SymbolicNumericIntegration.jl and similar) are left out entirely, on the
-user's decision: numeric fitting is not solving. The SymPy bridges `sympy_*` are also left out,
-because they would run SymPy rather than Julia.
+Times on the Mac (Apple silicon, at background priority): 24 minutes to precompile the packages,
+11 minutes for the warm-up package. Expect less at normal priority on many cores.
 
-## For the site (draft, not final)
+Starting a session takes 54 s with the warm-up package and 11 minutes without it. A session starts
+again after each timeout, so the warm-up package matters.
 
-The §5.5 line will be: Julia | `Julia` | the neutral syntax of section 3, which the runner writes
-from Symbolics' expression tree; `nothing` is Symbolics' decline | `exp(x^2)`.
+How `--jobs` maps to the machine:
 
-The checker reads Julia's answers with its neutral parser and grades `nothing` as unsolved. The
-version reads `Julia 1.12.6, Symbolics 7.49.0, SymbolicIntegration 3.8.1`.
+- Each job is one Julia process with one thread. Groebner's tasks use only Julia's threads, and
+  there is one.
+- A process takes about 1.2 GB after the start and more as it works. `--memory-gb 4` stops a
+  problem above that.
+- So: `--jobs` at most the physical cores, and RAM of at least 4 GB per job plus the system.
+- The reference runs use `--jobs 1`.

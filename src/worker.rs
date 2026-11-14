@@ -43,9 +43,6 @@ pub const MAX_ANSWER: usize = 1_000_000;
 /// How long the system may take to reset its state before a problem.
 const RESET_TIME: Duration = Duration::from_secs(120);
 
-/// How long the system may take to start.
-const START_TIME: Duration = Duration::from_secs(300);
-
 /// How long the system may print nothing and compute nothing while it
 /// starts, before it is taken as not being the system.
 const START_IDLE: Duration = Duration::from_secs(20);
@@ -109,13 +106,13 @@ impl<'a> Worker<'a> {
             .map_err(|e| format!("cannot write to the system: {e}"))?;
         // A program that is not a computer algebra system (`cat`, a shell)
         // waits for input and computes nothing: it is not waited for until
-        // START_TIME is over. The system itself may be slow to load, but it
+        // the start time is over. The system itself may be slow to load, but it
         // reads or computes meanwhile.
         s.set_idle(START_IDLE);
         let before = s
             .read_to(
                 &format!("@@MR-READY {nonce}"),
-                Instant::now() + START_TIME,
+                Instant::now() + self.adapter.start_time(),
                 true,
             )
             .inspect(|_| s.set_idle(Duration::from_secs(3)))
@@ -123,9 +120,10 @@ impl<'a> Worker<'a> {
                 let err = s.take_stderr();
                 let what = match e {
                     ReadError::Timeout => format!(
-                        "did not answer within {} s (is `{}` the system's command-line program?)",
-                        START_TIME.as_secs(),
-                        self.spec.program
+                        "did not answer within {} s (is `{}` the system's command-line program?) {}",
+                        self.adapter.start_time().as_secs(),
+                        self.spec.program,
+                        tail(&err)
                     ),
                     // the tail of what it printed is in the error already
                     ReadError::Ended(_) => format!("{e}"),

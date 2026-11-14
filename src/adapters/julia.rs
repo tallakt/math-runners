@@ -5,7 +5,7 @@
 //! (`julia_read.rs`).
 
 use super::julia_read::read_answer;
-use super::{Adapter, conditions};
+use super::{Adapter, MonomialOrder, PolyDomain, conditions, monomial_order, poly_domain};
 use crate::expr::{Expr, Op, Rel};
 use crate::print::{Dialect, Out, Printer, Unsupported, diff_args, unsupported};
 use crate::problem::Problem;
@@ -14,6 +14,9 @@ use crate::session::Spec;
 pub struct Julia;
 
 const DRIVER: &str = include_str!("julia_driver.jl");
+
+/// Julia's shared environment of the pinned packages, `@math-run`.
+pub const JULIA_ENVIRONMENT: &str = "math-run";
 
 /// The Julia name of a symbol of the problem: Symbolics' variable is named
 /// as in the problem, its binding in the problem's module has `s_` before
@@ -151,8 +154,7 @@ impl Dialect for D {
                 "exp" | "log" | "sqrt" | "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "asin"
                 | "acos" | "atan" | "acot" | "asec" | "acsc" | "sinh" | "cosh" | "tanh" | "coth"
                 | "sech" | "csch" | "asinh" | "acosh" | "atanh" | "acoth" | "asech" | "acsch"
-                | "abs" | "sign" | "floor" | "factorial" | "gamma" | "digamma" | "erf" | "erfc"
-                | "erfi" | "zeta",
+                | "abs" | "sign" | "floor" | "gamma" | "digamma" | "erf" | "erfc" | "erfi",
                 1,
             ) => f(name),
             ("log", 2) => f("log"),
@@ -162,7 +164,7 @@ impl Dialect for D {
             ("im", 1) => f("imag"),
             ("arg", 1) => f("angle"),
             ("conjugate", 1) => f("conj"),
-            ("binomial" | "gamma" | "polygamma" | "beta" | "expint" | "zeta", 2) => f(name),
+            ("binomial" | "gamma" | "polygamma" | "beta" | "expint", 2) => f(name),
             ("log_gamma", 1) => f("loggamma"),
             ("ei", 1) => f("expinti"),
             ("si", 1) => f("sinint"),
@@ -177,8 +179,10 @@ impl Dialect for D {
             ("airy_bi", 1) => f("airybi"),
             ("airy_ai_prime", 1) => f("airyaiprime"),
             ("airy_bi_prime", 1) => f("airybiprime"),
-            ("elliptic_k", 1) => f("ellipk"),
-            ("elliptic_e", 1) => f("ellipe"),
+            // SpecialFunctions' zeta, ellipk and ellipe take no symbols
+            ("zeta" | "elliptic_k" | "elliptic_e", _) => {
+                unsupported(format!("Symbolics has no symbolic {name}"))
+            }
             _ if crate::functions::NEUTRAL.contains(&name) || name == "root_of" => {
                 unsupported(format!("Julia has no {name} of {n} arguments"))
             }
@@ -209,6 +213,13 @@ fn exact(e: &Expr) -> Expr {
                 Op::Pow,
                 bx(a[0].clone()),
                 bx(Bin(Op::Div, bx(Int("1".into())), bx(a[1].clone()))),
+            ));
+        }
+        // Julia's factorial is of integers alone
+        Call(name, a) if name == "factorial" && a.len() == 1 => {
+            return exact(&Call(
+                "gamma".into(),
+                vec![Bin(Op::Add, bx(a[0].clone()), bx(Int("1".into())))],
             ));
         }
         Call(name, a) if name == "pochhammer" && a.len() == 2 => {
@@ -376,8 +387,9 @@ fn build(p: &Problem) -> Result<Code, Unsupported> {
                 || matches!(&point, Expr::Neg(a) if a.as_sym() == Some("infinity"));
             // at an infinity the one side is Symbolics' default
             let side = if infinite { String::new() } else { format!(", {side}") };
+            // limit takes Symbolics' expressions unwrapped, not as Num
             format!(
-                "result = Symbolics.limit({}, {}, {}{side})",
+                "result = Symbolics.limit(Symbolics.unwrap({}), Symbolics.unwrap({}), {}{side})",
                 arg("expr")?,
                 var(&p.symbol("var")?),
                 pe(&point)?
@@ -615,16 +627,24 @@ impl Adapter for Julia {
         "julia"
     }
 
+    /// The packages are those of Julia's shared environment `math-run`
+    /// (`scripts/julia-setup.sh` installs it from `julia/Manifest.toml`),
+    /// unless `JULIA_PROJECT` names another.
     fn spec(&self, program: &str) -> Spec {
+        let mut args: Vec<String> = Vec::new();
+        if std::env::var_os("JULIA_PROJECT").is_none() {
+            args.push(format!("--project=@{JULIA_ENVIRONMENT}"));
+        }
+        args.extend([
+            "--startup-file=no".into(),
+            "--history-file=no".into(),
+            "--color=no".into(),
+            "-e".into(),
+            DRIVER.into(),
+        ]);
         Spec {
             program: program.to_string(),
-            args: vec![
-                "--startup-file=no".into(),
-                "--history-file=no".into(),
-                "--color=no".into(),
-                "-e".into(),
-                DRIVER.into(),
-            ],
+            args,
             env: vec![],
             dir: None,
         }
@@ -664,6 +684,12 @@ impl Adapter for Julia {
 
     fn goodbye(&self) -> &'static str {
         "mr_quit()"
+    }
+
+    /// Julia compiles what the warm-up runs, at the start: minutes, the
+    /// first time on a machine.
+    fn start_time(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(900)
     }
 
     fn read_answer(&self, text: &str) -> Result<String, String> {
@@ -725,16 +751,252 @@ pub fn show(p: &Problem) -> Result<String, Unsupported> {
     Ok(format!("{}{}\nanswer = {}", c.setup, c.task, c.answer))
 }
 
-fn polynomial(
-    p: &Problem,
-    _pe: &dyn Fn(&Expr) -> Out,
-    _list: &dyn Fn(&str) -> Out,
-) -> Result<Code, Unsupported> {
-    unsupported(format!("Symbolics has no {}", p.op.replace('_', " ")))
+/// Whether the expression is a polynomial in its symbols with rational
+/// coefficients, as Nemo's polynomial rings take it.
+fn is_rational_polynomial(e: &Expr) -> bool {
+    match e {
+        Expr::Int(_) => true,
+        Expr::Sym(s) => !crate::expr::is_constant(s),
+        Expr::Neg(a) => is_rational_polynomial(a),
+        Expr::Bin(Op::Add | Op::Sub | Op::Mul, a, b) => {
+            is_rational_polynomial(a) && is_rational_polynomial(b)
+        }
+        Expr::Bin(Op::Div, a, b) => is_rational_polynomial(a) && is_rational(b),
+        Expr::Bin(Op::Pow, a, b) => {
+            is_rational_polynomial(a) && b.as_int().is_some_and(|k| k >= 0)
+        }
+        _ => false,
+    }
 }
 
-fn linear_algebra(p: &Problem, _pe: &dyn Fn(&Expr) -> Out, _setup: String) -> Result<Code, Unsupported> {
-    unsupported(format!("Symbolics has no {}", p.op.replace('_', " ")))
+/// The polynomial ops. Symbolics has no factor, gcd, resultant or
+/// discriminant of its expressions: these are Nemo's, in its polynomial
+/// rings over the rationals (`polynomial_ring(QQ, [...])`), the resultant
+/// and the discriminant in `R[x]` with R the ring of the other symbols. The
+/// Gröbner basis is Symbolics' `groebner_basis` (Groebner.jl); the minimal
+/// polynomial Nemo's `minpoly` of the algebraic number in `QQBar`.
+fn polynomial(
+    p: &Problem,
+    pe: &dyn Fn(&Expr) -> Out,
+    list: &dyn Fn(&str) -> Out,
+) -> Result<Code, Unsupported> {
+    let ring = |names: &[String]| -> String {
+        format!(
+            "mr_R, ({},) = Nemo.polynomial_ring(Nemo.QQ, [{}])\n",
+            names.iter().map(|v| var(v)).collect::<Vec<_>>().join(", "),
+            names.iter().map(|v| format!(":{v}")).collect::<Vec<_>>().join(", ")
+        )
+    };
+    let polys = |key: &str| -> Result<Vec<Expr>, Unsupported> {
+        let ps = if key == "expr" { vec![p.expr(key)?] } else { p.exprs(key)? };
+        if ps.iter().any(|e| !is_rational_polynomial(e)) {
+            return unsupported(
+                "not a polynomial with rational coefficients, as Nemo's polynomial ring takes it",
+            );
+        }
+        Ok(ps)
+    };
+    let symbols = p.all_symbols()?;
+    let code = |setup: String, task: String| {
+        Ok(Code {
+            setup,
+            task,
+            answer: "result".into(),
+        })
+    };
+    match p.op.as_str() {
+        "factor" => {
+            if poly_domain(p)? != PolyDomain::Rationals {
+                return unsupported("Nemo's factor is over the rationals here, not the Gaussian rationals");
+            }
+            let e = &polys("expr")?[0];
+            if symbols.is_empty() {
+                return unsupported("a number, not a polynomial");
+            }
+            code(ring(&symbols), format!("result = Nemo.factor({})", pe(e)?))
+        }
+        "gcd" | "lcm" => {
+            let ps = polys("polynomials")?;
+            if symbols.is_empty() || ps.is_empty() {
+                return unsupported("no polynomials");
+            }
+            code(
+                ring(&symbols),
+                format!("result = reduce(Nemo.{}, {})", p.op, list("polynomials")?),
+            )
+        }
+        "resultant" | "discriminant" => {
+            let x = p.symbol("var")?;
+            let ps = if p.op == "resultant" { polys("polynomials")? } else { polys("expr")? };
+            if p.op == "resultant" && ps.len() != 2 {
+                return unsupported("a resultant of other than two polynomials");
+            }
+            let others: Vec<String> = symbols.into_iter().filter(|s| *s != x).collect();
+            let (mut setup, base) = if others.is_empty() {
+                (String::new(), "Nemo.QQ")
+            } else {
+                (ring(&others), "mr_R")
+            };
+            setup.push_str(&format!(
+                "mr_S, {} = Nemo.polynomial_ring({base}, :{x})\n",
+                var(&x)
+            ));
+            let args = ps.iter().map(pe).collect::<Result<Vec<_>, _>>()?;
+            code(
+                setup,
+                format!("result = Nemo.{}({})", p.op, args.join(", ")),
+            )
+        }
+        "groebner" => {
+            let order = match monomial_order(p)? {
+                MonomialOrder::Lex => "Lex",
+                MonomialOrder::Grlex => "DegLex",
+                MonomialOrder::Grevlex => "DegRevLex",
+            };
+            let vars: Vec<String> = p.symbols("vars")?.iter().map(|v| var(v)).collect();
+            let mut setup = String::new();
+            for s in &symbols {
+                setup.push_str(&format!("{} = Symbolics.variable(:{s})\n", var(s)));
+            }
+            code(
+                setup,
+                format!(
+                    "result = Symbolics.groebner_basis({}, ordering = Groebner.{order}({}))",
+                    list("polynomials")?,
+                    vars.join(", ")
+                ),
+            )
+        }
+        "minimal_polynomial" => {
+            let x = p.symbol("var")?;
+            let a = qqbar(&p.expr("expr")?)?;
+            code(
+                format!(
+                    "mr_K = Nemo.algebraic_closure(Nemo.QQ)\nmr_R, _ = Nemo.polynomial_ring(Nemo.QQ, :{x})\n"
+                ),
+                format!("result = Nemo.minpoly(mr_R, {a})"),
+            )
+        }
+        op => unsupported(format!("the op {op} is not known to the runner")),
+    }
+}
+
+/// An algebraic number as Nemo's `QQBar` builds it, exactly: rationals,
+/// `+ - * /`, whole and rational powers, roots, and the cosine and sine of
+/// rational multiples of pi. Another number (pi, e, gamma(1/4), 2^sqrt(2))
+/// is not one QQBar has.
+fn qqbar(e: &Expr) -> Out {
+    let no = || unsupported("not an algebraic number that Nemo's QQBar builds (radicals, cos and sin of rational multiples of pi)");
+    // a rational multiple of pi: the rational
+    fn of_pi(e: &Expr) -> Option<Expr> {
+        let pi = |x: &Expr| matches!(x, Expr::Sym(s) if s == "pi");
+        let one = || Expr::Int("1".into());
+        match e {
+            x if pi(x) => Some(one()),
+            Expr::Neg(a) => of_pi(a).map(|r| Expr::Neg(Box::new(r))),
+            Expr::Bin(Op::Mul, a, b) if pi(b) && is_rational(a) => Some((**a).clone()),
+            Expr::Bin(Op::Mul, a, b) if pi(a) && is_rational(b) => Some((**b).clone()),
+            Expr::Bin(Op::Div, a, b) if is_rational(b) => {
+                of_pi(a).map(|r| Expr::Bin(Op::Div, Box::new(r), b.clone()))
+            }
+            _ => None,
+        }
+    }
+    Ok(match e {
+        e if is_rational(e) => format!("mr_K({})", big_rational(e)?),
+        Expr::Neg(a) => format!("(-{})", qqbar(a)?),
+        Expr::Bin(op, a, b) if *op != Op::Pow => {
+            let o = match op {
+                Op::Add => "+",
+                Op::Sub => "-",
+                Op::Mul => "*",
+                _ => "/",
+            };
+            format!("({} {o} {})", qqbar(a)?, qqbar(b)?)
+        }
+        Expr::Bin(Op::Pow, a, b) => match (b.as_int(), b.as_ref()) {
+            (Some(k), _) => format!("({} ^ {k})", qqbar(a)?),
+            (None, Expr::Bin(Op::Div, n, d)) => match (n.as_int(), d.as_int()) {
+                (Some(n), Some(d)) if d > 0 => {
+                    format!("(Nemo.root({}, {d}) ^ {n})", qqbar(a)?)
+                }
+                _ => return no(),
+            },
+            (None, Expr::Neg(r)) => match r.as_ref() {
+                Expr::Bin(Op::Div, n, d) => match (n.as_int(), d.as_int()) {
+                    (Some(n), Some(d)) if d > 0 => {
+                        format!("(Nemo.root({}, {d}) ^ (-{n}))", qqbar(a)?)
+                    }
+                    _ => return no(),
+                },
+                _ => return no(),
+            },
+            _ => return no(),
+        },
+        Expr::Call(f, a) if f == "sqrt" && a.len() == 1 => format!("sqrt({})", qqbar(&a[0])?),
+        Expr::Call(f, a) if f == "root" && a.len() == 2 => match a[1].as_int() {
+            Some(k) if k > 0 => format!("Nemo.root({}, {k})", qqbar(&a[0])?),
+            _ => return no(),
+        },
+        Expr::Call(f, a) if (f == "cos" || f == "sin") && a.len() == 1 => match of_pi(&a[0]) {
+            Some(r) => format!("Nemo.{f}pi(mr_K({}))", big_rational(&r)?),
+            None => return no(),
+        },
+        _ => return no(),
+    })
+}
+
+/// The linear algebra ops: `det` and `inv` of Julia's LinearAlgebra on a
+/// matrix of Symbolics' numbers (exact, by Symbolics' arithmetic);
+/// Symbolics' `symbolic_linear_solve` of a square system; the rank and the
+/// null space Nemo's, of a matrix of rationals. Symbolics has no
+/// eigenvalues, Jordan form or power of a symbolic exponent.
+fn linear_algebra(p: &Problem, pe: &dyn Fn(&Expr) -> Out, setup: String) -> Result<Code, Unsupported> {
+    let m = p.expr("matrix")?;
+    let rows = match &m {
+        Expr::List(rows) if !rows.is_empty() => rows.clone(),
+        _ => return unsupported("the matrix is not a list of rows"),
+    };
+    let cells: Vec<Expr> = rows.iter().flat_map(|r| r.items()).collect();
+    let n = rows[0].items().len();
+    if rows.iter().any(|r| !matches!(r, Expr::List(c) if c.len() == n)) {
+        return unsupported("the matrix's rows are not lists of the same length");
+    }
+    let mat = format!("Main.mr_matrix({})", pe(&m)?);
+    let rational = || -> Result<String, Unsupported> {
+        if !cells.iter().all(is_rational) {
+            return unsupported(format!(
+                "Symbolics has no {}: Nemo's is of a matrix of rationals",
+                p.op
+            ));
+        }
+        Ok(format!("Main.mr_qmatrix({})", pe(&m)?))
+    };
+    let mut answer = "result".to_string();
+    let task = match p.op.as_str() {
+        "determinant" if p.has("power") => {
+            return unsupported("Symbolics has no power of a matrix by a symbolic exponent");
+        }
+        "determinant" => format!("result = LinearAlgebra.det({mat})"),
+        "inverse" => format!("result = LinearAlgebra.inv({mat})"),
+        "rank" => format!("result = Nemo.rank({})", rational()?),
+        "nullspace" => {
+            answer = "Main.mr_columns(result[2])".into();
+            format!("result = Nemo.nullspace({})", rational()?)
+        }
+        "solve_linear" => {
+            if rows.len() != n {
+                return unsupported("Symbolics' symbolic_linear_solve takes as many equations as unknowns");
+            }
+            format!(
+                "mr_v = [Symbolics.variable(Symbol(\"mr_v\", j)) for j in 1:{n}]\n\
+                 result = Symbolics.symbolic_linear_solve({mat} * mr_v .~ {}, mr_v)",
+                pe(&p.expr("rhs")?)?
+            )
+        }
+        op => return unsupported(format!("Symbolics has no {}", op.replace('_', " "))),
+    };
+    Ok(Code { setup, task, answer })
 }
 
 #[cfg(test)]
@@ -798,7 +1060,7 @@ mod tests {
         assert_eq!(jl("log(2, x) + atan2(y, x)"), "log(2, s_x) + atan(s_y, s_x)");
         assert_eq!(jl("log_gamma(x) + ei(x)"), "loggamma(s_x) + expinti(s_x)");
         assert_eq!(jl("ceiling(x) + re(x) + conjugate(x)"), "ceil(s_x) + real(s_x) + conj(s_x)");
-        assert_eq!(jl("elliptic_k(x)"), "ellipk(s_x)");
+        assert_eq!(jl("factorial(x)"), "gamma(s_x + 1)");
         assert_eq!(jl("pochhammer(x, 3)"), "gamma(s_x + 3)/gamma(s_x)");
         assert_eq!(
             jl("harmonic(x)"),
@@ -810,6 +1072,8 @@ mod tests {
             "hypergeometric([1], [2], x)",
             "legendre_p(2, x)",
             "elliptic_f(x, 1/2)",
+            "elliptic_k(x)",
+            "zeta(x)",
             "heaviside(x)",
             "fresnel_s(x)",
             "li(x)",
@@ -830,9 +1094,15 @@ mod tests {
         assert!(why("integrate", r#"{"integrand": "x", "var": "x", "from": "0", "to": "1"}"#)
             .contains("definite"));
         let c = code("limit", r#"{"expr": "1/x", "var": "x", "point": "0", "direction": "+"}"#);
-        assert_eq!(c.task, "result = Symbolics.limit(1/s_x, s_x, 0, :right)");
+        assert_eq!(
+            c.task,
+            "result = Symbolics.limit(Symbolics.unwrap(1/s_x), Symbolics.unwrap(s_x), 0, :right)"
+        );
         let c = code("limit", r#"{"expr": "1/x", "var": "x", "point": "-infinity"}"#);
-        assert_eq!(c.task, "result = Symbolics.limit(1/s_x, s_x, -Inf)");
+        assert_eq!(
+            c.task,
+            "result = Symbolics.limit(Symbolics.unwrap(1/s_x), Symbolics.unwrap(s_x), -Inf)"
+        );
         let c = code("series", r#"{"expr": "exp(x)", "var": "x", "point": "1", "order": 4}"#);
         assert_eq!(c.task, "result = Symbolics.taylor(exp(s_x), s_x, 1, 0:3)");
         assert!(why("series", r#"{"expr": "exp(1/x)", "var": "x", "point": "infinity", "order": 3}"#)

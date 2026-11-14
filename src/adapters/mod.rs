@@ -80,6 +80,11 @@ pub trait Adapter: Send + Sync {
         text.trim().to_string()
     }
 
+    /// How long the system may take to start, its warm-up included.
+    fn start_time(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(300)
+    }
+
     /// Whether the adapter was tested against the system.
     fn tested(&self) -> bool {
         true

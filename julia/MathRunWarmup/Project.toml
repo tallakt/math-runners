@@ -1,0 +1,12 @@
+name = "MathRunWarmup"
+uuid = "6b0f4a52-3c1e-4d8e-9a57-2f1d6c3e8b91"
+version = "0.1.0"
+
+[deps]
+Groebner = "0b43b601-686d-58a3-8a1c-6623616c7cd4"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Nemo = "2edaba10-b0f1-5616-af89-8c11ac63239a"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+SymbolicIntegration = "315ce56f-eed0-411d-ab8a-2fbdf9327b51"
+Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"

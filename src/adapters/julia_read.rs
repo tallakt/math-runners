@@ -242,6 +242,14 @@ fn node(v: &Value) -> Result<Expr, String> {
         "i" => signed_int(text(1)?)?,
         "q" => {
             let (n, d) = (signed_int(text(1)?)?, signed_int(text(2)?)?);
+            // Julia's 1//0 and -1//0 are its rational infinities
+            if is_zero(&d) {
+                return match n {
+                    Expr::Neg(_) => Ok(neg(sym("infinity"))),
+                    n if !is_zero(&n) => Ok(sym("infinity")),
+                    _ => Err("0//0".into()),
+                };
+            }
             if is_one(&d) {
                 n
             } else {
@@ -272,6 +280,8 @@ fn node(v: &Value) -> Result<Expr, String> {
         "b" => sym(text(1)?),
         "nothing" => sym("nothing"),
         "s" => sym(&name(text(1)?)?),
+        // SymbolicIntegration's integral it could not do, returned as it is
+        "fn" if text(1)? == "∫" && a.len() == 4 => call("integrate", kids(2)?),
         "fn" => {
             let n = name(text(1)?)?;
             if crate::functions::NEUTRAL.contains(&n.as_str()) || crate::expr::is_constant(&n) {
@@ -423,6 +433,8 @@ mod tests {
         assert_eq!(read(r#"["i","-12"]"#), "-12");
         assert_eq!(read(r#"["q","-1","2"]"#), "-1/2");
         assert_eq!(read(r#"["q","3","1"]"#), "3");
+        assert_eq!(read(r#"["q","1","0"]"#), "infinity");
+        assert_eq!(read(r#"["q","-1","0"]"#), "-infinity");
         assert_eq!(read(r#"["f","0.5"]"#), "0.5");
         assert_eq!(read(r#"["f","1.0e-5"]"#), "0.00001");
         assert_eq!(read(r#"["f","-1.25e3"]"#), "-1250.0");
@@ -532,6 +544,14 @@ mod tests {
             "[[1, 2], [3, 4]]"
         );
         assert_eq!(read(r#"["nothing"]"#), "nothing");
+        assert_eq!(
+            read(&format!(r#"["fn","∫",["call","SpecialFunctions.besselj",["i","1"],{x}],{x}]"#)),
+            "integrate(bessel_j(1, x), x)"
+        );
+        assert_eq!(
+            read(r#"["l",["l",["eq",["s","x"],["call","Base.*",["f","6.283185307179586"],["s","k"]]],["fn","element",["s","k"],["s","integers"]]]]"#),
+            "[[x = 6.283185307179586*k, element(k, integers)]]"
+        );
         assert_eq!(
             read(&format!(r#"["rel","<",{x},["i","1"]]"#)),
             "x < 1"

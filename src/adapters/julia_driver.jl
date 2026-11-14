@@ -27,6 +27,12 @@ import Nemo
 import Groebner
 import SymbolicIntegration
 const SymbolicUtils = Symbolics.SymbolicUtils
+# the warm-up compiled into the environment's package images, where it is
+# installed (julia/MathRunWarmup): its native code makes the start fast
+try
+    @eval import MathRunWarmup
+catch
+end
 
 const MR_OUT = stdout
 
@@ -46,7 +52,13 @@ function mr_one_line(e)
     length(s) > 1500 ? first(s, 1500) : s
 end
 
-mr_error_text(e) = string(nameof(typeof(e)), ": ", mr_one_line(e))
+# the error itself, not include_string's LoadError around it
+function mr_error_text(e)
+    while e isa LoadError
+        e = e.error
+    end
+    string(nameof(typeof(e)), ": ", mr_one_line(e))
+end
 
 # --- the tree of a result -------------------------------------------------
 
@@ -104,6 +116,53 @@ mr_tree(io, x::AbstractMatrix) = mr_node(io, "m", [collect(x[i, :]) for i in axe
 mr_tree(io, x::Union{AbstractVector, Tuple}) = mr_node(io, "l", x...)
 mr_tree(io, x) = mr_symbolic(io, x)
 
+# Nemo's numbers, polynomials (of its rings, over the rationals or over a
+# ring of polynomials), factorizations and matrices, written term by term
+const AA = Nemo.AbstractAlgebra
+
+struct MRCall
+    f::String
+    args::Vector{Any}
+end
+mr_tree(io, c::MRCall) = mr_node(io, "call", c.f, c.args...)
+struct MRSym
+    name::String
+end
+mr_tree(io, s::MRSym) = mr_node(io, "s", s.name)
+
+mr_tree(io, x::Nemo.ZZRingElem) = mr_node(io, "i", string(x))
+mr_tree(io, x::Nemo.QQFieldElem) = mr_tree(io, Rational{BigInt}(x))
+mr_tree(io, m::AA.MatElem) = mr_node(io, "m", [[m[i, j] for j in 1:AA.ncols(m)] for i in 1:AA.nrows(m)]...)
+
+# a polynomial of its terms, each a coefficient and powers of variables
+function mr_terms(terms)
+    parts = Any[]
+    for (c, powers) in terms
+        fs = Any[MRCall("Base.^", Any[MRSym(string(v)), e]) for (v, e) in powers if e > 0]
+        fs = Any[f.args[2] == 1 ? f.args[1] : f for f in fs]
+        if isempty(fs)
+            push!(parts, c)
+        elseif isone(c)
+            push!(parts, length(fs) == 1 ? fs[1] : MRCall("Base.*", fs))
+        else
+            push!(parts, MRCall("Base.*", Any[c; fs]))
+        end
+    end
+    isempty(parts) ? 0 : length(parts) == 1 ? parts[1] : MRCall("Base.+", parts)
+end
+
+mr_tree(io, p::AA.PolyRingElem) = mr_tree(io, mr_terms(
+    [(AA.coeff(p, i), [(AA.var(AA.parent(p)), i)]) for i in AA.degree(p):-1:0 if !iszero(AA.coeff(p, i))]))
+mr_tree(io, p::AA.MPolyRingElem) = mr_tree(io, mr_terms(
+    [(c, collect(zip(AA.symbols(AA.parent(p)), e)))
+     for (c, e) in zip(AA.coefficients(p), AA.exponent_vectors(p))]))
+function mr_tree(io, f::AA.Fac)
+    fs = Any[e == 1 ? p : MRCall("Base.^", Any[p, e]) for (p, e) in f]
+    u = AA.unit(f)
+    isone(u) || pushfirst!(fs, u)
+    mr_tree(io, isempty(fs) ? 1 : length(fs) == 1 ? fs[1] : MRCall("Base.*", fs))
+end
+
 function mr_symbolic(io, x)
     if x isa SymbolicUtils.BasicSymbolic
         if SymbolicUtils.isconst(x)
@@ -124,13 +183,30 @@ function mr_symbolic(io, x)
             end
             throw(MRUnreadable("the operation $(op) of type $(typeof(op))"))
         elseif SymbolicUtils.issym(x)
-            return mr_node(io, "s", string(nameof(x)))
+            return mr_node(io, "s", mr_name(string(nameof(x))))
         end
     end
     throw(MRUnreadable("a value of type $(typeof(x))"))
 end
 
+# symbolic_solve's integer of a periodic family of roots (`x ~ finv(y) +
+# n*period`) is an anonymous variable, as `##396`: named k, k2, ... in the
+# answer, each bound in its solution by element(k, integers)
+const MR_NAMES = Dict{String, String}()
+mr_name(s) = startswith(s, "##") ?
+    get!(() -> length(MR_NAMES) == 0 ? "k" : "k" * string(length(MR_NAMES) + 1), MR_NAMES, s) : s
+struct MRElement
+    var::Any
+end
+mr_tree(io, e::MRElement) = mr_node(io, "fn", "element", e.var, MRSym("integers"))
+mr_anonymous(r) = try
+    [v for v in Symbolics.get_variables(r) if startswith(string(nameof(v)), "##")]
+catch
+    []
+end
+
 function mr_tree_string(x)
+    empty!(MR_NAMES)
     io = IOBuffer()
     mr_tree(io, x)
     String(take!(io))
@@ -148,17 +224,27 @@ mr_q(x::Rational) = denominator(x) == 1 ? mr_q(numerator(x)) :
 # of Symbolics, as Julia's ^ computes it in floats.
 mr_pow(a, b) = Symbolics.Num(SymbolicUtils.term(^, Symbolics.unwrap(a), Symbolics.unwrap(b)))
 
+# A matrix of Symbolics' numbers, from its rows; and one of Nemo's rationals.
+mr_matrix(rows) = [Symbolics.Num(rows[i][j]) for i in eachindex(rows), j in eachindex(rows[1])]
+mr_qmatrix(rows) = Nemo.matrix(Nemo.QQ, [Rational{BigInt}(rows[i][j]) for i in eachindex(rows), j in eachindex(rows[1])])
+
+# The basis of a null space, Nemo's columns, as a list of vectors.
+mr_columns(n) = [[n[i, j] for i in 1:AA.nrows(n)] for j in 1:AA.ncols(n)]
+
 # The solutions of symbolic_solve, as lists of equations var ~ value: a
 # root of the one variable, or a Dict of the variables' values. `nothing`,
 # its decline, as it is.
 mr_solutions(result::Nothing, vars) = nothing
 function mr_solutions(result, vars)
     map(collect(result)) do r
-        if r isa AbstractDict
-            [v ~ r[v] for v in vars if haskey(r, v)]
+        sol = if r isa AbstractDict
+            Any[v ~ r[v] for v in vars if haskey(r, v)]
         else
-            [vars[1] ~ r]
+            Any[vars[1] ~ r]
         end
+        values = r isa AbstractDict ? collect(Base.values(r)) : [r]
+        ks = unique(vcat([mr_anonymous(v) for v in values]...))
+        vcat(sol, Any[MRElement(k) for k in ks])
     end
 end
 
@@ -220,11 +306,15 @@ function mr_problem(nonce, setup, task, answer; quiet = false)
     nothing
 end
 
-# a problem to warm up with, its output left out
-mr_warm(setup, task, answer) = mr_problem("", setup, task, answer; quiet = true)
+# a problem to warm up with, its output left out (its time on the standard
+# error, which the runner shows where the start fails)
+function mr_warm(setup, task, answer)
+    t = @elapsed mr_problem("", setup, task, answer; quiet = true)
+    println(stderr, "warm-up ", round(t, digits = 1), " s: ", first(task, 80))
+end
 
 function mr_start(nonce)
-    mr_say("@@MR-VERSION Julia " * string(VERSION) * ", Symbolics " *
+    mr_say("@@MR-VERSION " * string(VERSION) * ", Symbolics " *
            string(pkgversion(Symbolics)) * ", SymbolicIntegration " *
            string(pkgversion(SymbolicIntegration)))
     mr_say("@@MR-READY " * nonce)
