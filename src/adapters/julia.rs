@@ -39,7 +39,11 @@ fn is_constant(e: &Expr) -> bool {
 
 fn has_unknown_call(e: &Expr) -> bool {
     match e {
-        Expr::Call(n, a) => !crate::functions::NEUTRAL.contains(&n.as_str()) || a.iter().any(has_unknown_call),
+        // the marks of `exact` are numbers
+        Expr::Call(n, a) => {
+            !(crate::functions::NEUTRAL.contains(&n.as_str()) || n.starts_with('\u{1}'))
+                || a.iter().any(has_unknown_call)
+        }
         Expr::Prime(..) => true,
         Expr::List(a) => a.iter().any(has_unknown_call),
         Expr::Neg(a) | Expr::Not(a) => has_unknown_call(a),
@@ -122,7 +126,12 @@ impl Dialect for D {
         }
         if name == "diff" {
             let (f, vars) = diff_args(args)?;
-            let mut out = p.print(&f)?;
+            // Symbolics' Differential takes its numbers, not Julia's
+            let mut out = if is_constant(&f) {
+                format!("Num({})", p.print(&f)?)
+            } else {
+                p.print(&f)?
+            };
             for (v, k) in vars.iter().rev() {
                 let d = if *k == 1 {
                     format!("Differential({})", var(v))
@@ -1051,6 +1060,7 @@ mod tests {
         assert_eq!(jl("123456789012345678901234567890*x"), "123456789012345678901234567890*s_x");
         assert_eq!(jl("pi*x + e^x + i"), "Num(π)*s_x + Num(ℯ)^s_x + im");
         assert_eq!(jl("euler_gamma"), "Num(Base.MathConstants.eulergamma)");
+        assert_eq!(jl("diff(1/2, x) + diff(x^2, x)"), "Differential(s_x)(Num((1//2))) + Differential(s_x)(s_x^2)");
     }
 
     #[test]

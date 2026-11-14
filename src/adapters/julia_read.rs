@@ -338,7 +338,9 @@ fn node(v: &Value) -> Result<Expr, String> {
 fn function(f: &str, mut args: Vec<Expr>) -> Result<Expr, String> {
     let n = args.len();
     let short = f.rsplit('.').next().unwrap_or(f);
-    let module = &f[..f.len() - short.len()].trim_end_matches('.');
+    let module = f[..f.len() - short.len()].trim_end_matches('.');
+    // Base's functions of its submodule Math (sec, sech, ...) are Base's
+    let module = &if module == "Base.Math" { "Base" } else { module };
     let mut take = || args.remove(0);
     Ok(match (*module, short, n) {
         ("Base", "+", _) if n >= 1 => {
@@ -360,6 +362,31 @@ fn function(f: &str, mut args: Vec<Expr>) -> Result<Expr, String> {
             bin(Op::Pow, a, take())
         }
         ("Base", "inv", 1) => bin(Op::Div, int("1"), take()),
+        ("Base", "identity", 1) | ("Base", "complex", 1) => take(),
+        ("Base", "complex", 2) => {
+            let re = take();
+            add(re, bin(Op::Mul, take(), sym("i")))
+        }
+        // its solvers' undocumented ssqrt and slog are the principal sqrt and
+        // log (seen: ssqrt(-4) = 2im, ssqrt(-3 - 4im) = 1 - 2im, slog(-1) =
+        // pi*im); its scbrt is not the principal root (scbrt(-8) = -2)
+        ("Symbolics", "ssqrt", 1) => call("sqrt", args),
+        ("Symbolics", "slog", 1) => call("log", args),
+        // F(phi | m), the parameter m (seen: F(pi/2, 0.5) = K(0.5) = 1.854...)
+        ("Elliptic", "F", 2) => call("elliptic_f", args),
+        // its documentation: 2F1(a, b; c; z), of HypergeometricFunctions
+        ("SymbolicIntegration", "hypergeometric2f1", 4) => {
+            let (a, b, c, z) = (take(), take(), take(), take());
+            call(
+                "hypergeometric",
+                vec![Expr::List(vec![a, b]), Expr::List(vec![c]), z],
+            )
+        }
+        // S(z) and C(z) of DLMF 7.2 (seen: fresnels(1.0) = 0.43825914739035476)
+        ("FresnelIntegrals", "fresnels", 1) => call("fresnel_s", args),
+        ("FresnelIntegrals", "fresnelc", 1) => call("fresnel_c", args),
+        // its documentation: Re[Li_n(x)]
+        ("PolyLog", "reli", 2) => call("re", vec![call("polylog", args)]),
         (
             "Base",
             "exp" | "log" | "sqrt" | "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "asin"
@@ -514,9 +541,30 @@ mod tests {
             "log(10, x)"
         );
         assert_eq!(read(&format!(r#"["call","Base.ceil",{x}]"#)), "ceiling(x)");
+        assert_eq!(read(&format!(r#"["call","Base.Math.sech",{x}]"#)), "sech(x)");
+        assert_eq!(read(&format!(r#"["call","Base.identity",{x}]"#)), "x");
+        assert_eq!(read(&format!(r#"["call","Base.complex",{x},["i","-2"]]"#)), "x - 2*i");
+        assert_eq!(
+            read(&format!(r#"["call","Elliptic.F",{x},["q","1","2"]]"#)),
+            "elliptic_f(x, 1/2)"
+        );
+        assert_eq!(
+            read(&format!(r#"["call","FresnelIntegrals.fresnels",{x}]"#)),
+            "fresnel_s(x)"
+        );
+        assert_eq!(
+            read(&format!(r#"["call","SymbolicIntegration.hypergeometric2f1",["i","1"],["q","1","2"],["i","2"],{x}]"#)),
+            "hypergeometric([1, 1/2], [2], x)"
+        );
+        assert_eq!(
+            read(&format!(r#"["call","PolyLog.reli",["i","2"],{x}]"#)),
+            "re(polylog(2, x))"
+        );
         assert_eq!(read(&format!(r#"["call","Base.conj",{x}]"#)), "conjugate(x)");
         // none is guessed at
         assert!(read_answer(&format!(r#"["call","Base.cbrt",{x}]"#)).is_err());
+        assert!(read_answer(&format!(r#"["call","Symbolics.scbrt",{x}]"#)).is_err());
+        assert_eq!(read(&format!(r#"["call","Symbolics.ssqrt",{x}]"#)), "sqrt(x)");
         assert!(read_answer(&format!(r#"["call","Base.ifelse",{x},{x},{x}]"#)).is_err());
         assert!(read_answer(&format!(r#"["call","SpecialFunctions.besselj",{x}]"#)).is_err());
     }

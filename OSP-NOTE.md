@@ -44,13 +44,65 @@ What the checker needs:
   `element(k, integers)`.
 
 An answer with a Julia function that has no neutral counterpart is written as `error`, with the
-function named in the message. Examples are `PolyLog.reli`, Symbolics' undocumented
-`ssqrt`/`scbrt`/`slog`, and `roots_of`.
+function named in the message. Examples are `roots_of` and Symbolics' undocumented `scbrt`, which
+is the real cube root.
+
+Some functions are written as the neutral function they are seen to be or documented to be:
+
+- Symbolics' undocumented `ssqrt` and `slog` are the principal sqrt and log (`ssqrt(-3 - 4im)` is
+  `1 - 2im`, `slog(-1)` is `πim`).
+- FresnelIntegrals' `fresnels` and `fresnelc` are `fresnel_s` and `fresnel_c` (DLMF 7.2;
+  `fresnels(1.0)` is 0.43826).
+- Elliptic's `F(φ, m)` is `elliptic_f` (parameter m; `F(π/2, 0.5)` is K(0.5)).
+- PolyLog's `reli(n, x)` is `re(polylog(n, x))`, per its documentation.
+- SymbolicIntegration's `hypergeometric2f1(a, b, c, z)` is `hypergeometric([a, b], [c], z)`.
 
 ## The quick set on the Mac
 
-Run with `--jobs 2` at low priority. The results are in `~/math-runs/julia-test/julia-quick.jsonl`;
-the summary is in the final report.
+Suite 2026.1 quick (2012 problems), `--jobs 2 --memory-gb 4`, timeout 30 s, at low priority:
+32 minutes. The run file is `~/math-runs/julia-test/julia-quick.jsonl`.
+
+After reader fixes made during the run, 35 problems whose answers could not be read were run again.
+`julia-quick-merged.jsonl` holds the run with their new lines. Use it for the counts, not for
+upload.
+
+Totals: 798 ok, 989 unsupported, 195 error, 30 timeout. There were no crashes, hangs, memory stops
+or questions.
+
+| op | ok | unsupported | error | timeout |
+|---|---|---|---|---|
+| integrate (indefinite) | 191 | 0 | 87 | 25 |
+| integrate (definite) | 0 | 200 | 0 | 0 |
+| solve_ode | 155 | 18 | 43 | 0 |
+| simplify | 198 | 0 | 1 | 0 |
+| evaluate | 48 | 90 | 0 | 0 |
+| solve | 65 | 11 | 11 | 3 |
+| series | 49 | 13 | 13 | 0 |
+| inverse_laplace | 34 | 0 | 0 | 2 |
+| laplace | 1 | 0 | 0 | 0 |
+| limit | 1 | 0 | 40 | 0 |
+| resultant | 23 | 0 | 0 | 0 |
+| minimal_polynomial | 22 | 7 | 0 | 0 |
+| factor | 1 | 0 | 0 | 0 |
+| determinant | 4 | 1 | 0 | 0 |
+| rank | 5 | 0 | 0 | 0 |
+| inverse | 1 | 0 | 0 | 0 |
+| solve_pde, sum, product, solve_recurrence, fourier, mellin, z-transforms, hyperexpand, holds, eigenvalues, jordan_form, matrix_power | 0 | all | 0 | 0 |
+
+Where the errors come from. All of these are Julia's own; the adapter's faults found in the run
+were fixed:
+
+- **integrate.** 85 are SymbolicIntegration's `DomainError: Cannot raise an integer x to a
+  negative power`.
+- **limit.** Symbolics' `limit` documents that it takes only log, exp and + - * /, so a sin or a
+  non-integer power is `Not implemented`.
+- **solve_ode.**
+  - 16 are `sympy_integrate`, which symbolic_solve_ode calls for some first-order ODEs. That needs
+    SymPy, which is not loaded.
+  - 19 are `laplace_solve_ode` on nonlinear ODEs.
+- **series.** 10 are `InexactError NaN`, from `taylor` at a pole.
+- **unreadable.** 2 answers contain Symbolics' `scbrt`, which is the real cube root, not the
+  principal one.
 
 ## The rented server
 
@@ -62,8 +114,17 @@ the summary is in the final report.
    small problem of each op into the package images.
 4. Runs `math-run version -s julia` and one problem as a smoke test.
 
-Times on the Mac (Apple silicon, at background priority): 24 minutes to precompile the packages,
-11 minutes for the warm-up package. Expect less at normal priority on many cores.
+Times on the Mac (Apple silicon, at background priority, other work beside):
+
+- About 25 minutes to download and resolve the packages.
+- 24 minutes to precompile them.
+- 11 minutes for the warm-up package.
+
+Expect much less at normal priority on many cores. The script prints its own time.
+
+The script's steps were run one by one on the Mac: instantiate, precompile, `version`, run. The
+script itself was not run end to end, because it would set the Mac's default Julia channel and
+write `~/.julia/environments/math-run`. Its first full run will be on the server.
 
 Starting a session takes 54 s with the warm-up package and 11 minutes without it. A session starts
 again after each timeout, so the warm-up package matters.

@@ -392,8 +392,14 @@ integers. Symbolics has no assumptions: the problems are given without them, the
 Symbolics' own (real). The answer is read from Symbolics' expression tree, each Julia function by
 its module and name (`SpecialFunctions.besselj` is `bessel_j`), and written in the neutral syntax
 of the formats (section 3); an answer with a function that has no form there is `error`, with the
-function in the message (as Symbolics' undocumented `ssqrt`, `scbrt`, `slog` of its solvers, and
-`roots_of`). SymbolicIntegration's integral that it cannot do comes back as `∫(f, x)`, written
+function in the message (as `roots_of`, and the undocumented `scbrt` of Symbolics' solvers, which is
+the real cube root, `scbrt(-8) = -2`); their undocumented `ssqrt` and `slog` are written `sqrt` and
+`log`, as they are seen to be the principal ones (`ssqrt(-3 - 4im) = 1 - 2im`, `slog(-1) = πim`).
+Other packages' functions in SymbolicIntegration's answers are written as the same neutral ones:
+FresnelIntegrals' `fresnels` (`fresnel_s`, seen `fresnels(1.0) = 0.43825...`), Elliptic's `F`
+(`elliptic_f`, of the parameter m), PolyLog's `reli` (`re(polylog(n, x))`, its documentation).
+`symbolic_solve_ode` calls `sympy_integrate` for some equations, which needs SymPy: without it
+(SymPy is not loaded) that is Julia's `error`. SymbolicIntegration's integral that it cannot do comes back as `∫(f, x)`, written
 `integrate(f, x)`; symbolic_solve's integer of a periodic family, an anonymous variable, is written
 `k` with `element(k, integers)`. Julia's own floats are written as they are (`taylor` rationalizes
 its float coefficients, its default; `simplify` may turn `π` into 3.14159...).
