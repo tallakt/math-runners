@@ -24,6 +24,8 @@ use crate::session::Spec;
 
 pub mod fricas;
 pub mod giac;
+pub mod julia;
+mod julia_read;
 pub mod maple;
 pub mod mathematica;
 pub mod mathilda;
@@ -59,6 +61,13 @@ pub trait Adapter: Send + Sync {
         text.trim().to_string()
     }
 
+    /// The answer of the run file, from what the system printed between the
+    /// answer's lines: the clean answer, or why the runner cannot read it
+    /// (an `error`).
+    fn read_answer(&self, text: &str) -> Result<String, String> {
+        Ok(self.clean_answer(text))
+    }
+
     /// The system's own chatter in the output (prompts, echoes), which is
     /// left out of the messages.
     fn clean_noise(&self, text: &str) -> String {
@@ -83,6 +92,7 @@ pub fn all() -> Vec<Box<dyn Adapter>> {
         Box::new(maxima::Maxima),
         Box::new(fricas::FriCAS),
         Box::new(giac::Giac),
+        Box::new(julia::Julia),
         Box::new(maple::Maple),
         Box::new(mathematica::Mathematica),
         Box::new(mathilda::Mathilda),

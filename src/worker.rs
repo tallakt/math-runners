@@ -356,7 +356,19 @@ impl<'a> Worker<'a> {
         r.cpu = c.map(round);
         match answer {
             Some(lines) if !in_answer && errors.is_empty() => {
-                let a = self.adapter.clean_answer(&lines.join("\n"));
+                let a = match self.adapter.read_answer(&lines.join("\n")) {
+                    Ok(a) => a,
+                    Err(why) => {
+                        r.message = Some(cut(
+                            &format!(
+                                "the runner cannot read the answer: {why}; the answer: {}",
+                                lines.join(" ")
+                            ),
+                            2000,
+                        ));
+                        return;
+                    }
+                };
                 if a.is_empty() {
                     r.message = Some("the system's answer is empty".into());
                 } else if a.len() > MAX_ANSWER {
