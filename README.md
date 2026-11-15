@@ -23,7 +23,7 @@ One binary has an adapter for each system:
 Windows (use WSL). It needs the network only to fetch the suite and to upload.
 
 Download the binary for your machine from the site's [downloads](https://math.osp.no/downloads)
-(check the SHA-256 given there), unpack it (`tar xzf math-run-0.1.0-linux-x86_64.tar.gz`; GNU tar
+(check the SHA-256 given there), unpack it (`tar xzf math-run-0.2.0-linux-x86_64.tar.gz`; GNU tar
 may warn about `LIBARCHIVE.xattr` keywords: harmless), and run `math-run-.../math-run`, or put it
 on the `PATH`. Or build it, with Rust 1.85 or later (`rustup`, or your package manager's `cargo`;
 the build fetches its crates from crates.io):
