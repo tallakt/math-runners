@@ -38,11 +38,11 @@ struct Cli {
 
 #[derive(clap::Args, Clone)]
 struct SystemArgs {
-    /// The system: sympy, maxima, fricas, giac, maple, mathematica or mathilda.
+    /// The system: sympy, maxima, fricas, giac, julia, maple, mathematica or mathilda.
     #[arg(long, short)]
     system: String,
     /// The program that starts it, where it is not the usual one on the
-    /// PATH (python3, maxima, fricas, giac, maple, wolfram, Mathilda).
+    /// PATH (python3, maxima, fricas, giac, julia, maple, wolfram, Mathilda).
     #[arg(long)]
     command: Option<String>,
 }
@@ -321,6 +321,8 @@ fn real_main(cli: Cli) -> Result<(), String> {
                 println!("# {}  ({})", p.id, p.op);
                 let text = if a.slug() == "sympy" {
                     adapters::sympy::show(&p)
+                } else if a.slug() == "julia" {
+                    adapters::julia::show(&p)
                 } else {
                     a.problem(&p, "0")
                 };
