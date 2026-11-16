@@ -55,6 +55,12 @@ pub trait Dialect {
     /// A call of a function of the neutral syntax, or of an unknown one.
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out;
 
+    /// Whether the dialect prints a system's answers back into the neutral syntax, where an
+    /// unevaluated `integrate(f, x)` or a `sum` is an answer and no nested form of a problem.
+    fn prints_answers(&self) -> bool {
+        false
+    }
+
     /// A nested form (an integral, a sum, a product, a limit) inside a problem's expression, as
     /// the system's own form that works it out: `body`, the variable (a symbol), and the bounds
     /// `[a, b]` of an integral, a sum or a product, or the point `[p]` of a limit.
@@ -180,7 +186,11 @@ impl<'a> Printer<'a> {
             Expr::Int(n) => (d.int(n), ATOM),
             Expr::Dec(x) => (d.dec(x), ATOM),
             Expr::Sym(s) => (d.symbol(s)?, ATOM),
-            Expr::Call(name, args) => match Nested::of(name, args).map_err(Unsupported)? {
+            Expr::Call(name, args) => match if d.prints_answers() {
+                None
+            } else {
+                Nested::of(name, args).map_err(Unsupported)?
+            } {
                 Some(kind) => (d.nested(self, kind, &args[0], &args[1], &args[2..])?, ATOM),
                 None => (d.call(self, name, args)?, ATOM),
             },

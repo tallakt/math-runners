@@ -22,6 +22,10 @@ impl Dialect for Neutral {
         Ok(name.to_string())
     }
 
+    fn prints_answers(&self) -> bool {
+        true
+    }
+
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
         Ok(format!("{name}({})", p.args(args)?.join(", ")))
     }

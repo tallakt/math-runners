@@ -24,7 +24,7 @@ One binary has an adapter for each system:
 Windows (use WSL). It needs the network only to fetch the suite and to upload.
 
 Download the binary for your machine from the site's [downloads](https://math.osp.no/downloads)
-(check the SHA-256 given there), unpack it (`tar xzf math-run-0.2.0-linux-x86_64.tar.gz`; GNU tar
+(check the SHA-256 given there), unpack it (`tar xzf math-run-0.3.0-linux-x86_64.tar.gz`; GNU tar
 may warn about `LIBARCHIVE.xattr` keywords: harmless), and run `math-run-.../math-run`, or put it
 on the `PATH`. Or build it, with Rust 1.85 or later (`rustup`, or your package manager's `cargo`;
 the build fetches its crates from crates.io):
@@ -43,7 +43,8 @@ Install the system you run, so that its program is on the `PATH`, or give the pr
 - **FriCAS**: `fricas` (Homebrew: `brew install fricas`; Debian: `apt install fricas`).
 - **Giac**: the command-line `giac` of the `xcas` package (Debian, Ubuntu), or Bernard Parisse's
   builds.
-- **Julia**: `sh scripts/julia-setup.sh [path/to/math-run]` installs juliaup and Julia 1.12.6, and
+- **Julia**: the files of the setup (`scripts/julia-setup.sh`, `julia/`) are in the source archive
+  on the downloads page, not in the binary's. `sh scripts/julia-setup.sh [path/to/math-run]` installs juliaup and Julia 1.12.6, and
   the packages of `julia/Project.toml` and `julia/Manifest.toml` (Symbolics, SymbolicIntegration,
   SpecialFunctions, Nemo, Groebner, at exactly those versions, and the warm-up package
   `julia/MathRunWarmup`, see the Julia section) as Julia's shared environment `math-run`,

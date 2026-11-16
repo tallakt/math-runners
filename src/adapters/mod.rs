@@ -257,6 +257,14 @@ mod nested_tests {
             "sum(integrate(x^3, x, 0, k), k, 1, 3) + limit(sin(y)/y, y, 0) + product(j, j, 1, 3)",
         );
         for a in all() {
+            // Julia has no form that works a nested integral, sum or limit out (Symbolics' own
+            // `limit` takes only log, exp and the four operations; a sum has no symbolic form):
+            // the problem is `unsupported`, and says so.
+            if a.slug() == "julia" {
+                let why = a.problem(&p, "n1").expect_err("julia: nested forms");
+                assert!(why.0.contains("no form for a nested"), "{}", why.0);
+                continue;
+            }
             let script = a
                 .problem(&p, "n1")
                 .unwrap_or_else(|e| panic!("{}: {e}", a.slug()));
