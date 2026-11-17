@@ -25,11 +25,16 @@ say() { printf '\n== %s\n' "$*"; }
 
 say "juliaup and Julia $JULIA_VERSION"
 export PATH="$HOME/.juliaup/bin:$PATH"
-if ! command -v juliaup >/dev/null 2>&1; then
-    curl -fsSL https://install.julialang.org | sh -s -- --yes
+# a Julia of the pinned version on the PATH already is used as it is
+if command -v julia >/dev/null 2>&1 && julia --version 2>/dev/null | grep -q " $JULIA_VERSION\$"; then
+    echo "julia $JULIA_VERSION is on the PATH already"
+else
+    if ! command -v juliaup >/dev/null 2>&1; then
+        curl -fsSL https://install.julialang.org | sh -s -- --yes
+    fi
+    juliaup add "$JULIA_VERSION"
+    juliaup default "$JULIA_VERSION"
 fi
-juliaup add "$JULIA_VERSION"
-juliaup default "$JULIA_VERSION"
 julia --version
 
 say "the packages, as the shared environment math-run"

@@ -110,6 +110,8 @@ mr_tree(io, x::Integer) = mr_node(io, "i", string(x))
 mr_tree(io, x::Rational) = mr_node(io, "q", string(numerator(x)), string(denominator(x)))
 mr_tree(io, x::AbstractFloat) = mr_node(io, "f", string(x))
 mr_tree(io, x::Complex) = mr_node(io, "c", real(x), imag(x))
+# Julia's `im` is a Complex{Bool}: its parts are the numbers 0 and 1
+mr_tree(io, x::Complex{Bool}) = mr_node(io, "c", Int(real(x)), Int(imag(x)))
 mr_tree(io, x::AbstractIrrational) = mr_node(io, "k", string(x))
 mr_tree(io, ::Nothing) = mr_node(io, "nothing")
 mr_tree(io, x::AbstractMatrix) = mr_node(io, "m", [collect(x[i, :]) for i in axes(x, 1)]...)

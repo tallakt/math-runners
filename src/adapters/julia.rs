@@ -289,6 +289,22 @@ fn exact(e: &Expr) -> Expr {
             };
             Call(name.clone(), args.iter().map(num).collect())
         }
+        // A division by a whole number is the product with its exact rational, as Symbolics
+        // keeps it: `x/3` is `x*(1//3)`, `1/(3*x)` is `(1//3)/x`. Written as a quotient,
+        // SymbolicIntegration's `integrate(x/3, x)` fails on the integer power `3^-1` that
+        // Symbolics makes of it, and `integrate((1//3)*x, x)` does not.
+        Bin(Op::Div, x, y) if matches!(&**y, Int(n) if n != "0") && !is_constant(x) => {
+            let Int(n) = &**y else { unreachable!() };
+            Bin(Op::Mul, b(x), bx(Call(RATIONAL.into(), vec![Int("1".into()), Int(n.clone())])))
+        }
+        Bin(Op::Div, x, y) if whole_factor(y).is_some() => {
+            let (c, rest) = whole_factor(y).unwrap();
+            Bin(
+                Op::Div,
+                bx(Bin(Op::Mul, b(x), bx(Call(RATIONAL.into(), vec![Int("1".into()), c])))),
+                b(&rest),
+            )
+        }
         Call(name, args) => Call(name.clone(), args.iter().map(exact).collect()),
         List(a) => List(a.iter().map(exact).collect()),
         Prime(n, k, a) => Prime(n.clone(), *k, a.iter().map(exact).collect()),
@@ -300,6 +316,38 @@ fn exact(e: &Expr) -> Expr {
         Or(x, y) => Or(b(x), b(y)),
         e => e.clone(),
     }
+}
+
+/// A product with a whole number (not 0) among its factors, at any depth, as `3*x` or
+/// `2*(x + 1)*sqrt(x)`, and no other number: the number and the product of the rest.
+fn whole_factor(e: &Expr) -> Option<(Expr, Expr)> {
+    use Expr::*;
+    fn flatten<'a>(e: &'a Expr, out: &mut Vec<&'a Expr>) {
+        match e {
+            Bin(Op::Mul, a, b) => {
+                flatten(a, out);
+                flatten(b, out);
+            }
+            e => out.push(e),
+        }
+    }
+    // a quotient of numbers alone stays as it is: `Num(pi)/6`
+    if !matches!(e, Bin(Op::Mul, ..)) || is_constant(e) {
+        return None;
+    }
+    let mut factors = Vec::new();
+    flatten(e, &mut factors);
+    let at = factors
+        .iter()
+        .position(|f| matches!(f, Int(n) if n != "0"))?;
+    let c = factors[at].clone();
+    let mut rest = factors
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != at)
+        .map(|(_, f)| (*f).clone());
+    let first = rest.next()?;
+    Some((c, rest.fold(first, |acc, f| Bin(Op::Mul, Box::new(acc), Box::new(f)))))
 }
 
 /// The marks of `exact`, which the dialect prints.
@@ -1044,10 +1092,25 @@ mod tests {
     }
 
     #[test]
+    fn a_division_by_a_whole_number_is_the_product_with_its_rational() {
+        // SymbolicIntegration's integrate(x/3, x) and integrate(1/(3*x), x) fail on the integer
+        // power 3^-1 that Symbolics makes of the quotient; the rational form works
+        assert_eq!(jl("x/3"), "s_x*(1//3)");
+        assert_eq!(jl("1/(3*x)"), "1*(1//3)/s_x");
+        assert_eq!(jl("3/(4*x)"), "3*(1//4)/s_x");
+        assert_eq!(jl("x/(2*(x + 1)*sqrt(x))"), "s_x*(1//2)/((s_x + 1)*sqrt(s_x))");
+        assert_eq!(jl("(x + 1)/5"), "(s_x + 1)*(1//5)");
+        // nothing changes where there is no whole number to divide by, or it is 0
+        assert_eq!(jl("1/x"), "1/s_x");
+        assert_eq!(jl("x/y"), "s_x/s_y");
+        assert_eq!(jl("1/(x*y)"), "1/(s_x*s_y)");
+    }
+
+    #[test]
     fn numbers_stay_exact() {
         assert_eq!(jl("x^(1/2) + 1/3"), "s_x^(1//2) + (1//3)");
         assert_eq!(jl("-1/2*x"), "-(1//2)*s_x");
-        assert_eq!(jl("x/2 + 2/x"), "s_x/2 + 2/s_x");
+        assert_eq!(jl("x/2 + 2/x"), "s_x*(1//2) + 2/s_x");
         // Julia's sqrt(2) is a float, sqrt(Num(2)) Symbolics' sqrt
         assert_eq!(jl("sqrt(2)*x"), "sqrt(Num(2))*s_x");
         assert_eq!(jl("gamma(1/2)"), "gamma(Num((1//2)))");

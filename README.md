@@ -24,7 +24,7 @@ One binary has an adapter for each system:
 Windows (use WSL). It needs the network only to fetch the suite and to upload.
 
 Download the binary for your machine from the site's [downloads](https://math.osp.no/downloads)
-(check the SHA-256 given there), unpack it (`tar xzf math-run-0.3.0-linux-x86_64.tar.gz`; GNU tar
+(check the SHA-256 given there), unpack it (`tar xzf math-run-0.3.1-linux-x86_64.tar.gz`; GNU tar
 may warn about `LIBARCHIVE.xattr` keywords: harmless), and run `math-run-.../math-run`, or put it
 on the `PATH`. Or build it, with Rust 1.85 or later (`rustup`, or your package manager's `cargo`;
 the build fetches its crates from crates.io):
@@ -428,7 +428,10 @@ earlier problem used, which is compiled within its problem's time. A start may t
 before the runner gives up (`math-run version -s julia` shows it). The numbers are given exactly
 as Symbolics keeps them: `1/2` as Julia's `1//2`, `sqrt(2)` as `sqrt(Num(2))`, `2^(1/3)` as
 Symbolics' term of it (Julia computes all three in floats otherwise), rational arithmetic in big
-integers. Symbolics has no assumptions: the problems are given without them, the symbols
+integers. A division by a whole number is the product with its rational (`x/3` is `x*(1//3)`,
+`1/(3*x)` is `(1//3)/x`; version 0.3.1): written as a quotient, SymbolicIntegration's
+`integrate(x/3, x)` fails on the integer power `3^-1` that Symbolics makes of it, as it does not for
+the rational. A quotient of numbers alone is left as it is. Symbolics has no assumptions: the problems are given without them, the symbols
 Symbolics' own (real). The answer is read from Symbolics' expression tree, each Julia function by
 its module and name (`SpecialFunctions.besselj` is `bessel_j`), and written in the neutral syntax
 of the formats (section 3); an answer with a function that has no form there is `error`, with the
