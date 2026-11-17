@@ -672,6 +672,13 @@ fn jl_string(s: &str) -> String {
 }
 
 impl Adapter for Julia {
+    /// Julia's own version alone, `1.12.6`: the driver prints it with the packages' versions
+    /// (`1.12.6, Symbolics 7.49.0, SymbolicIntegration 3.8.1`), which are those of the runner
+    /// release's `julia/Manifest.toml`, and the system's version on the site is Julia's.
+    fn clean_version(&self, text: &str) -> String {
+        text.split(',').next().unwrap_or(text).trim().to_string()
+    }
+
     fn name(&self) -> &'static str {
         "Julia"
     }
@@ -1089,6 +1096,15 @@ mod tests {
             .and_then(|t| t.strip_suffix(')'))
             .unwrap()
             .to_string()
+    }
+
+    #[test]
+    fn the_version_is_julias_alone() {
+        assert_eq!(
+            Julia.clean_version("1.12.6, Symbolics 7.49.0, SymbolicIntegration 3.8.1\n"),
+            "1.12.6"
+        );
+        assert_eq!(Julia.clean_version("1.12.6"), "1.12.6");
     }
 
     #[test]

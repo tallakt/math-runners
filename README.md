@@ -13,7 +13,7 @@ One binary has an adapter for each system:
 | Maxima | `maxima` | `maxima` | Maxima 5.50.0 (SBCL), macOS; Maxima 5.47.0 (GCL, Debian trixie), Linux |
 | FriCAS | `fricas` | `fricas` | FriCAS 1.4.0 (SBCL), macOS; FriCAS 1.3.11 (GCL, Debian trixie), Linux |
 | Giac | `giac` | `giac` (or `icas`) | Giac 1.9.0.93 (Debian trixie), Linux |
-| Julia | `julia` | `julia` (Symbolics.jl and SymbolicIntegration.jl, the versions of `julia/Manifest.toml`) | Julia 1.12.6, Symbolics 7.49.0, SymbolicIntegration 3.8.1, macOS |
+| Julia | `julia` | `julia` (Symbolics.jl and SymbolicIntegration.jl, the versions of `julia/Manifest.toml`) | Julia 1.12.6 (with Symbolics 7.49.0, SymbolicIntegration 3.8.1), macOS |
 | Maple | `maple` | `maple` | **not run**: written from the documentation, see below |
 | Mathematica | `mathematica` | `wolfram` (or `math`, `WolframKernel`) | **not run**: written from the documentation |
 | Mathilda | `mathilda` | `Mathilda` | **not run**: the Mathematica adapter's problems, from Mathilda's user documentation |
@@ -417,7 +417,9 @@ starts it as `sh -c 'exec giac --sage 2>&1'`. Set `GIAC_THREADS=1` to keep it to
 
 ### Julia
 
-The runner writes Julia code for Symbolics.jl, which a small driver (`src/adapters/julia_driver.jl`)
+The system's version is Julia's alone, `1.12.6`: the packages are those of `julia/Manifest.toml` of
+the runner's release (the header's `runner.version`); `math-run version -s julia` prints Julia's
+version. The runner writes Julia code for Symbolics.jl, which a small driver (`src/adapters/julia_driver.jl`)
 runs in a fresh module. Julia compiles each function at its first call, which takes minutes for
 the solvers (two minutes for `laplace_solve_ode` alone): the environment's package
 `julia/MathRunWarmup` runs a small problem of each op when it is precompiled, so that Julia keeps
