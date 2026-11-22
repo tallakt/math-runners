@@ -111,7 +111,9 @@ impl Dialect for D {
     }
 
     fn prime(&self, _p: &Printer, name: &str, _order: usize, _args: &[Expr]) -> Out {
-        unsupported(format!("Julia: the derivative {name}' at a point is only a condition"))
+        unsupported(format!(
+            "Julia: the derivative {name}' at a point is only a condition"
+        ))
     }
 
     fn call(&self, p: &Printer, name: &str, args: &[Expr]) -> Out {
@@ -145,7 +147,10 @@ impl Dialect for D {
         if let Some((_, vars)) = self.funcs.iter().find(|f| f.0 == name) {
             if self.plain_functions {
                 if args.len() != vars.len()
-                    || args.iter().zip(vars).any(|(a, v)| a.as_sym() != Some(v.as_str()))
+                    || args
+                        .iter()
+                        .zip(vars)
+                        .any(|(a, v)| a.as_sym() != Some(v.as_str()))
                 {
                     return unsupported(format!(
                         "{name} at another point than its variables, in an equation"
@@ -260,11 +265,14 @@ fn exact(e: &Expr) -> Expr {
                 Call(RATIONAL.into(), vec![(**x).clone(), (**y).clone()])
             }
             // -1/2, which the parser reads as (-1)/2
-            Bin(Op::Div, x, y) if matches!(&**x, Neg(n) if matches!(**n, Int(_)))
-                && matches!(**y, Int(_)) =>
+            Bin(Op::Div, x, y)
+                if matches!(&**x, Neg(n) if matches!(**n, Int(_))) && matches!(**y, Int(_)) =>
             {
                 let Neg(n) = &**x else { unreachable!() };
-                Neg(Box::new(Call(RATIONAL.into(), vec![(**n).clone(), (**y).clone()])))
+                Neg(Box::new(Call(
+                    RATIONAL.into(),
+                    vec![(**n).clone(), (**y).clone()],
+                )))
             }
             e => Call(BIG_RATIONAL.into(), vec![e.clone()]),
         };
@@ -295,13 +303,21 @@ fn exact(e: &Expr) -> Expr {
         // Symbolics makes of it, and `integrate((1//3)*x, x)` does not.
         Bin(Op::Div, x, y) if matches!(&**y, Int(n) if n != "0") && !is_constant(x) => {
             let Int(n) = &**y else { unreachable!() };
-            Bin(Op::Mul, b(x), bx(Call(RATIONAL.into(), vec![Int("1".into()), Int(n.clone())])))
+            Bin(
+                Op::Mul,
+                b(x),
+                bx(Call(RATIONAL.into(), vec![Int("1".into()), Int(n.clone())])),
+            )
         }
         Bin(Op::Div, x, y) if whole_factor(y).is_some() => {
             let (c, rest) = whole_factor(y).unwrap();
             Bin(
                 Op::Div,
-                bx(Bin(Op::Mul, b(x), bx(Call(RATIONAL.into(), vec![Int("1".into()), c])))),
+                bx(Bin(
+                    Op::Mul,
+                    b(x),
+                    bx(Call(RATIONAL.into(), vec![Int("1".into()), c])),
+                )),
                 b(&rest),
             )
         }
@@ -347,7 +363,10 @@ fn whole_factor(e: &Expr) -> Option<(Expr, Expr)> {
         .filter(|(i, _)| *i != at)
         .map(|(_, f)| (*f).clone());
     let first = rest.next()?;
-    Some((c, rest.fold(first, |acc, f| Bin(Op::Mul, Box::new(acc), Box::new(f)))))
+    Some((
+        c,
+        rest.fold(first, |acc, f| Bin(Op::Mul, Box::new(acc), Box::new(f))),
+    ))
 }
 
 /// The marks of `exact`, which the dialect prints.
@@ -443,7 +462,11 @@ fn build(p: &Problem) -> Result<Code, Unsupported> {
             let infinite = matches!(&point, Expr::Sym(s) if s == "infinity")
                 || matches!(&point, Expr::Neg(a) if a.as_sym() == Some("infinity"));
             // at an infinity the one side is Symbolics' default
-            let side = if infinite { String::new() } else { format!(", {side}") };
+            let side = if infinite {
+                String::new()
+            } else {
+                format!(", {side}")
+            };
             // limit takes Symbolics' expressions unwrapped, not as Num
             format!(
                 "result = Symbolics.limit(Symbolics.unwrap({}), Symbolics.unwrap({}), {}{side})",
@@ -455,7 +478,9 @@ fn build(p: &Problem) -> Result<Code, Unsupported> {
         "series" => {
             let order = p.int("order")?;
             let point = p.expr("point")?;
-            if point.has_any(&["infinity".to_string()]) || matches!(&point, Expr::Sym(s) if s == "infinity") {
+            if point.has_any(&["infinity".to_string()])
+                || matches!(&point, Expr::Sym(s) if s == "infinity")
+            {
                 return unsupported("Symbolics' taylor expands at a point, not at infinity");
             }
             if order <= 0 {
@@ -473,11 +498,7 @@ fn build(p: &Problem) -> Result<Code, Unsupported> {
         }
         "laplace" | "inverse_laplace" => {
             p.check_convention()?;
-            let (f, x, y) = (
-                arg("expr")?,
-                p.symbol("var")?,
-                p.symbol("transform_var")?,
-            );
+            let (f, x, y) = (arg("expr")?, p.symbol("var")?, p.symbol("transform_var")?);
             // the transform's function names, which Symbolics' laplace takes
             // for its rules of an unknown f(t)
             if p.op == "laplace" {
@@ -496,7 +517,11 @@ fn build(p: &Problem) -> Result<Code, Unsupported> {
                 )
             }
         }
-        "fourier" | "inverse_fourier" | "mellin" | "inverse_mellin" | "z_transform"
+        "fourier"
+        | "inverse_fourier"
+        | "mellin"
+        | "inverse_mellin"
+        | "z_transform"
         | "inverse_z_transform" => {
             return unsupported(format!("Symbolics has no {}", p.op.replace('_', " ")));
         }
@@ -575,7 +600,11 @@ fn order(e: &Expr) -> usize {
 /// Symbolics solves a system only as `x' = A x` with every initial value
 /// (`solve_linear_ode_system`), which the runner does not rewrite the
 /// equations into.
-fn ode(p: &Problem, funcs: &[(String, Vec<String>)], mut setup: String) -> Result<Code, Unsupported> {
+fn ode(
+    p: &Problem,
+    funcs: &[(String, Vec<String>)],
+    mut setup: String,
+) -> Result<Code, Unsupported> {
     let eqs = p.exprs("equations")?;
     if eqs.len() != 1 || funcs.len() != 1 {
         return unsupported(
@@ -763,34 +792,79 @@ impl Adapter for Julia {
 
 /// A small problem of each op, to warm up: as (op, args).
 const WARM_UP: &[(&str, &str)] = &[
-    ("integrate", r#"{"integrand": "x*exp(x) + 1/(1 + x^2) + sqrt(x + 1)", "var": "x"}"#),
-    ("solve_ode", r#"{"equations": ["diff(y(x), x) + y(x) = x"], "function": "y(x)"}"#),
+    (
+        "integrate",
+        r#"{"integrand": "x*exp(x) + 1/(1 + x^2) + sqrt(x + 1)", "var": "x"}"#,
+    ),
+    (
+        "solve_ode",
+        r#"{"equations": ["diff(y(x), x) + y(x) = x"], "function": "y(x)"}"#,
+    ),
     (
         "solve_ode",
         r#"{"equations": ["diff(y(x), x, 2) + y(x) = 0"], "function": "y(x)", "conditions": ["y(0) = 1", "subs(diff(y(x), x), x = 0) = 0"]}"#,
     ),
-    ("limit", r#"{"expr": "(exp(x) - 1)/x", "var": "x", "point": "0"}"#),
-    ("limit", r#"{"expr": "log(x)/x", "var": "x", "point": "infinity"}"#),
-    ("series", r#"{"expr": "exp(x)*sin(x)", "var": "x", "point": "0", "order": 3}"#),
-    ("laplace", r#"{"expr": "exp(-t)*sin(t)", "var": "t", "transform_var": "s"}"#),
-    ("inverse_laplace", r#"{"expr": "1/(s^2 + 3*s + 2)", "var": "s", "transform_var": "t"}"#),
-    ("solve", r#"{"equations": ["x^2 - 3*x + 2 = 0"], "vars": ["x"], "domain": "complex"}"#),
-    ("solve", r#"{"equations": ["exp(2*x) = 3"], "vars": ["x"], "domain": "real"}"#),
+    (
+        "limit",
+        r#"{"expr": "(exp(x) - 1)/x", "var": "x", "point": "0"}"#,
+    ),
+    (
+        "limit",
+        r#"{"expr": "log(x)/x", "var": "x", "point": "infinity"}"#,
+    ),
+    (
+        "series",
+        r#"{"expr": "exp(x)*sin(x)", "var": "x", "point": "0", "order": 3}"#,
+    ),
+    (
+        "laplace",
+        r#"{"expr": "exp(-t)*sin(t)", "var": "t", "transform_var": "s"}"#,
+    ),
+    (
+        "inverse_laplace",
+        r#"{"expr": "1/(s^2 + 3*s + 2)", "var": "s", "transform_var": "t"}"#,
+    ),
+    (
+        "solve",
+        r#"{"equations": ["x^2 - 3*x + 2 = 0"], "vars": ["x"], "domain": "complex"}"#,
+    ),
+    (
+        "solve",
+        r#"{"equations": ["exp(2*x) = 3"], "vars": ["x"], "domain": "real"}"#,
+    ),
     (
         "solve",
         r#"{"equations": ["x + y = 3", "x*y = 2"], "vars": ["x", "y"], "domain": "complex"}"#,
     ),
-    ("simplify", r#"{"expr": "sin(x)^2 + cos(x)^2 + (x^2 - 1)/(x - 1)"}"#),
-    ("evaluate", r#"{"expr": "gamma(1/2) + sqrt(2)*diff(x^3, x) + bessel_j(1, x)"}"#),
-    ("partial_fractions", r#"{"expr": "(x + 3)/(x^3 - x)", "var": "x"}"#),
+    (
+        "simplify",
+        r#"{"expr": "sin(x)^2 + cos(x)^2 + (x^2 - 1)/(x - 1)"}"#,
+    ),
+    (
+        "evaluate",
+        r#"{"expr": "gamma(1/2) + sqrt(2)*diff(x^3, x) + bessel_j(1, x)"}"#,
+    ),
+    (
+        "partial_fractions",
+        r#"{"expr": "(x + 3)/(x^3 - x)", "var": "x"}"#,
+    ),
     ("factor", r#"{"expr": "x^4 - 1", "var": "x"}"#),
-    ("gcd", r#"{"polynomials": ["x^2 - 1", "x^2 + 2*x + 1"], "var": "x"}"#),
-    ("groebner", r#"{"polynomials": ["x^2 + y", "x*y - 1"], "vars": ["x", "y"], "order": "lex"}"#),
+    (
+        "gcd",
+        r#"{"polynomials": ["x^2 - 1", "x^2 + 2*x + 1"], "var": "x"}"#,
+    ),
+    (
+        "groebner",
+        r#"{"polynomials": ["x^2 + y", "x*y - 1"], "vars": ["x", "y"], "order": "lex"}"#,
+    ),
     ("determinant", r#"{"matrix": "[[1, a], [2, 3]]"}"#),
     ("inverse", r#"{"matrix": "[[1, a], [2, 3]]"}"#),
     ("rank", r#"{"matrix": "[[1, 2], [2, 4]]"}"#),
     ("nullspace", r#"{"matrix": "[[1, 2], [2, 4]]"}"#),
-    ("solve_linear", r#"{"matrix": "[[1, 1], [1, -1]]", "rhs": "[3, 1]"}"#),
+    (
+        "solve_linear",
+        r#"{"matrix": "[[1, 1], [1, -1]]", "rhs": "[3, 1]"}"#,
+    ),
 ];
 
 fn warm_up_problems() -> Vec<Problem> {
@@ -826,9 +900,7 @@ fn is_rational_polynomial(e: &Expr) -> bool {
             is_rational_polynomial(a) && is_rational_polynomial(b)
         }
         Expr::Bin(Op::Div, a, b) => is_rational_polynomial(a) && is_rational(b),
-        Expr::Bin(Op::Pow, a, b) => {
-            is_rational_polynomial(a) && b.as_int().is_some_and(|k| k >= 0)
-        }
+        Expr::Bin(Op::Pow, a, b) => is_rational_polynomial(a) && b.as_int().is_some_and(|k| k >= 0),
         _ => false,
     }
 }
@@ -848,11 +920,19 @@ fn polynomial(
         format!(
             "mr_R, ({},) = Nemo.polynomial_ring(Nemo.QQ, [{}])\n",
             names.iter().map(|v| var(v)).collect::<Vec<_>>().join(", "),
-            names.iter().map(|v| format!(":{v}")).collect::<Vec<_>>().join(", ")
+            names
+                .iter()
+                .map(|v| format!(":{v}"))
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     };
     let polys = |key: &str| -> Result<Vec<Expr>, Unsupported> {
-        let ps = if key == "expr" { vec![p.expr(key)?] } else { p.exprs(key)? };
+        let ps = if key == "expr" {
+            vec![p.expr(key)?]
+        } else {
+            p.exprs(key)?
+        };
         if ps.iter().any(|e| !is_rational_polynomial(e)) {
             return unsupported(
                 "not a polynomial with rational coefficients, as Nemo's polynomial ring takes it",
@@ -871,7 +951,9 @@ fn polynomial(
     match p.op.as_str() {
         "factor" => {
             if poly_domain(p)? != PolyDomain::Rationals {
-                return unsupported("Nemo's factor is over the rationals here, not the Gaussian rationals");
+                return unsupported(
+                    "Nemo's factor is over the rationals here, not the Gaussian rationals",
+                );
             }
             let e = &polys("expr")?[0];
             if symbols.is_empty() {
@@ -891,7 +973,11 @@ fn polynomial(
         }
         "resultant" | "discriminant" => {
             let x = p.symbol("var")?;
-            let ps = if p.op == "resultant" { polys("polynomials")? } else { polys("expr")? };
+            let ps = if p.op == "resultant" {
+                polys("polynomials")?
+            } else {
+                polys("expr")?
+            };
             if p.op == "resultant" && ps.len() != 2 {
                 return unsupported("a resultant of other than two polynomials");
             }
@@ -950,7 +1036,11 @@ fn polynomial(
 /// rational multiples of pi. Another number (pi, e, gamma(1/4), 2^sqrt(2))
 /// is not one QQBar has.
 fn qqbar(e: &Expr) -> Out {
-    let no = || unsupported("not an algebraic number that Nemo's QQBar builds (radicals, cos and sin of rational multiples of pi)");
+    let no = || {
+        unsupported(
+            "not an algebraic number that Nemo's QQBar builds (radicals, cos and sin of rational multiples of pi)",
+        )
+    };
     // a rational multiple of pi: the rational
     fn of_pi(e: &Expr) -> Option<Expr> {
         let pi = |x: &Expr| matches!(x, Expr::Sym(s) if s == "pi");
@@ -1015,7 +1105,11 @@ fn qqbar(e: &Expr) -> Out {
 /// Symbolics' `symbolic_linear_solve` of a square system; the rank and the
 /// null space Nemo's, of a matrix of rationals. Symbolics has no
 /// eigenvalues, Jordan form or power of a symbolic exponent.
-fn linear_algebra(p: &Problem, pe: &dyn Fn(&Expr) -> Out, setup: String) -> Result<Code, Unsupported> {
+fn linear_algebra(
+    p: &Problem,
+    pe: &dyn Fn(&Expr) -> Out,
+    setup: String,
+) -> Result<Code, Unsupported> {
     let m = p.expr("matrix")?;
     let rows = match &m {
         Expr::List(rows) if !rows.is_empty() => rows.clone(),
@@ -1023,7 +1117,10 @@ fn linear_algebra(p: &Problem, pe: &dyn Fn(&Expr) -> Out, setup: String) -> Resu
     };
     let cells: Vec<Expr> = rows.iter().flat_map(|r| r.items()).collect();
     let n = rows[0].items().len();
-    if rows.iter().any(|r| !matches!(r, Expr::List(c) if c.len() == n)) {
+    if rows
+        .iter()
+        .any(|r| !matches!(r, Expr::List(c) if c.len() == n))
+    {
         return unsupported("the matrix's rows are not lists of the same length");
     }
     let mat = format!("Main.mr_matrix({})", pe(&m)?);
@@ -1050,7 +1147,9 @@ fn linear_algebra(p: &Problem, pe: &dyn Fn(&Expr) -> Out, setup: String) -> Resu
         }
         "solve_linear" => {
             if rows.len() != n {
-                return unsupported("Symbolics' symbolic_linear_solve takes as many equations as unknowns");
+                return unsupported(
+                    "Symbolics' symbolic_linear_solve takes as many equations as unknowns",
+                );
             }
             format!(
                 "mr_v = [Symbolics.variable(Symbol(\"mr_v\", j)) for j in 1:{n}]\n\
@@ -1060,7 +1159,11 @@ fn linear_algebra(p: &Problem, pe: &dyn Fn(&Expr) -> Out, setup: String) -> Resu
         }
         op => return unsupported(format!("Symbolics has no {}", op.replace('_', " "))),
     };
-    Ok(Code { setup, task, answer })
+    Ok(Code {
+        setup,
+        task,
+        answer,
+    })
 }
 
 #[cfg(test)]
@@ -1114,7 +1217,10 @@ mod tests {
         assert_eq!(jl("x/3"), "s_x*(1//3)");
         assert_eq!(jl("1/(3*x)"), "1*(1//3)/s_x");
         assert_eq!(jl("3/(4*x)"), "3*(1//4)/s_x");
-        assert_eq!(jl("x/(2*(x + 1)*sqrt(x))"), "s_x*(1//2)/((s_x + 1)*sqrt(s_x))");
+        assert_eq!(
+            jl("x/(2*(x + 1)*sqrt(x))"),
+            "s_x*(1//2)/((s_x + 1)*sqrt(s_x))"
+        );
         assert_eq!(jl("(x + 1)/5"), "(s_x + 1)*(1//5)");
         // nothing changes where there is no whole number to divide by, or it is 0
         assert_eq!(jl("1/x"), "1/s_x");
@@ -1131,24 +1237,42 @@ mod tests {
         assert_eq!(jl("sqrt(2)*x"), "sqrt(Num(2))*s_x");
         assert_eq!(jl("gamma(1/2)"), "gamma(Num((1//2)))");
         assert_eq!(jl("2^(1/3)"), "Main.mr_pow(2, (1//3))");
-        assert_eq!(jl("root(2, 3) + root(x, 3)"), "Main.mr_pow(2, (1//3)) + s_x^(1//3)");
+        assert_eq!(
+            jl("root(2, 3) + root(x, 3)"),
+            "Main.mr_pow(2, (1//3)) + s_x^(1//3)"
+        );
         assert_eq!(jl("sin(pi/6)*x"), "sin(Num(Num(π)/6))*s_x");
         // Julia's integers wrap around: big integers
         assert_eq!(jl("2^70*x"), "Main.mr_q(((big(2) // 1) ^ 70))*s_x");
-        assert_eq!(jl("(1/2 + 1/3)*x"), "Main.mr_q(((big(1) // big(2)) + (big(1) // big(3))))*s_x");
-        assert_eq!(jl("123456789012345678901234567890*x"), "123456789012345678901234567890*s_x");
+        assert_eq!(
+            jl("(1/2 + 1/3)*x"),
+            "Main.mr_q(((big(1) // big(2)) + (big(1) // big(3))))*s_x"
+        );
+        assert_eq!(
+            jl("123456789012345678901234567890*x"),
+            "123456789012345678901234567890*s_x"
+        );
         assert_eq!(jl("pi*x + e^x + i"), "Num(π)*s_x + Num(ℯ)^s_x + im");
         assert_eq!(jl("euler_gamma"), "Num(Base.MathConstants.eulergamma)");
-        assert_eq!(jl("diff(1/2, x) + diff(x^2, x)"), "Differential(s_x)(Num((1//2))) + Differential(s_x)(s_x^2)");
+        assert_eq!(
+            jl("diff(1/2, x) + diff(x^2, x)"),
+            "Differential(s_x)(Num((1//2))) + Differential(s_x)(s_x^2)"
+        );
     }
 
     #[test]
     fn functions_by_their_julia_names() {
         assert_eq!(jl("bessel_j(1/2, x)"), "besselj((1//2), s_x)");
         assert_eq!(jl("hankel_1(0, x)"), "hankelh1(0, s_x)");
-        assert_eq!(jl("log(2, x) + atan2(y, x)"), "log(2, s_x) + atan(s_y, s_x)");
+        assert_eq!(
+            jl("log(2, x) + atan2(y, x)"),
+            "log(2, s_x) + atan(s_y, s_x)"
+        );
         assert_eq!(jl("log_gamma(x) + ei(x)"), "loggamma(s_x) + expinti(s_x)");
-        assert_eq!(jl("ceiling(x) + re(x) + conjugate(x)"), "ceil(s_x) + real(s_x) + conj(s_x)");
+        assert_eq!(
+            jl("ceiling(x) + re(x) + conjugate(x)"),
+            "ceil(s_x) + real(s_x) + conj(s_x)"
+        );
         assert_eq!(jl("factorial(x)"), "gamma(s_x + 1)");
         assert_eq!(jl("pochhammer(x, 3)"), "gamma(s_x + 3)/gamma(s_x)");
         assert_eq!(
@@ -1180,23 +1304,45 @@ mod tests {
             c.task,
             "result = SymbolicIntegration.integrate(2*s_x*exp(s_x^2), s_x)"
         );
-        assert!(why("integrate", r#"{"integrand": "x", "var": "x", "from": "0", "to": "1"}"#)
-            .contains("definite"));
-        let c = code("limit", r#"{"expr": "1/x", "var": "x", "point": "0", "direction": "+"}"#);
+        assert!(
+            why(
+                "integrate",
+                r#"{"integrand": "x", "var": "x", "from": "0", "to": "1"}"#
+            )
+            .contains("definite")
+        );
+        let c = code(
+            "limit",
+            r#"{"expr": "1/x", "var": "x", "point": "0", "direction": "+"}"#,
+        );
         assert_eq!(
             c.task,
             "result = Symbolics.limit(Symbolics.unwrap(1/s_x), Symbolics.unwrap(s_x), 0, :right)"
         );
-        let c = code("limit", r#"{"expr": "1/x", "var": "x", "point": "-infinity"}"#);
+        let c = code(
+            "limit",
+            r#"{"expr": "1/x", "var": "x", "point": "-infinity"}"#,
+        );
         assert_eq!(
             c.task,
             "result = Symbolics.limit(Symbolics.unwrap(1/s_x), Symbolics.unwrap(s_x), -Inf)"
         );
-        let c = code("series", r#"{"expr": "exp(x)", "var": "x", "point": "1", "order": 4}"#);
+        let c = code(
+            "series",
+            r#"{"expr": "exp(x)", "var": "x", "point": "1", "order": 4}"#,
+        );
         assert_eq!(c.task, "result = Symbolics.taylor(exp(s_x), s_x, 1, 0:3)");
-        assert!(why("series", r#"{"expr": "exp(1/x)", "var": "x", "point": "infinity", "order": 3}"#)
-            .contains("infinity"));
-        let c = code("solve", r#"{"equations": ["x^2 = 4"], "vars": ["x"], "domain": "real"}"#);
+        assert!(
+            why(
+                "series",
+                r#"{"expr": "exp(1/x)", "var": "x", "point": "infinity", "order": 3}"#
+            )
+            .contains("infinity")
+        );
+        let c = code(
+            "solve",
+            r#"{"equations": ["x^2 = 4"], "vars": ["x"], "domain": "real"}"#,
+        );
         assert_eq!(c.task, "result = Symbolics.symbolic_solve(s_x^2 ~ 4, s_x)");
         assert_eq!(c.answer, "Main.mr_solutions(result, [s_x])");
         let c = code(
@@ -1207,8 +1353,13 @@ mod tests {
             c.task,
             "result = Symbolics.symbolic_solve([s_x + s_y ~ 3, s_x - s_y ~ 1], [s_x, s_y])"
         );
-        assert!(why("solve", r#"{"equations": ["x^2 > 1"], "vars": ["x"], "domain": "real"}"#)
-            .contains("inequalities"));
+        assert!(
+            why(
+                "solve",
+                r#"{"equations": ["x^2 > 1"], "vars": ["x"], "domain": "real"}"#
+            )
+            .contains("inequalities")
+        );
         let c = code(
             "inverse_laplace",
             r#"{"expr": "1/(s^2 + 1)", "var": "s", "transform_var": "t"}"#,
@@ -1217,7 +1368,14 @@ mod tests {
             c.task,
             "result = Symbolics.inverse_laplace(1/(s_s^2 + 1), mr_F, s_s, mr_f, s_t)"
         );
-        for op in ["sum", "product", "solve_recurrence", "solve_pde", "fourier", "holds"] {
+        for op in [
+            "sum",
+            "product",
+            "solve_recurrence",
+            "solve_pde",
+            "fourier",
+            "holds",
+        ] {
             assert!(build(&problem(op, "{}")).is_err(), "{op}");
         }
     }
@@ -1248,34 +1406,37 @@ mod tests {
              f_y, s_x, [1, (1//2)])"
         );
         // conditions elsewhere than 0, or not every one
-        assert!(build(&problem(
-            "solve_ode",
-            r#"{"equations": ["diff(y(x), x, 2) + y(x) = 0"], "function": "y(x)",
+        assert!(
+            build(&problem(
+                "solve_ode",
+                r#"{"equations": ["diff(y(x), x, 2) + y(x) = 0"], "function": "y(x)",
                 "conditions": ["y(1) = 1", "subs(diff(y(x), x), x = 1) = 0"]}"#,
-        ))
-        .is_err());
-        assert!(build(&problem(
-            "solve_ode",
-            r#"{"equations": ["diff(y(x), x, 2) + y(x) = 0"], "function": "y(x)",
+            ))
+            .is_err()
+        );
+        assert!(
+            build(&problem(
+                "solve_ode",
+                r#"{"equations": ["diff(y(x), x, 2) + y(x) = 0"], "function": "y(x)",
                 "conditions": ["y(0) = 1"]}"#,
-        ))
-        .is_err());
-        assert!(build(&problem(
-            "solve_ode",
-            r#"{"equations": ["diff(f(t), t) = g(t)", "diff(g(t), t) = -f(t)"],
+            ))
+            .is_err()
+        );
+        assert!(
+            build(&problem(
+                "solve_ode",
+                r#"{"equations": ["diff(f(t), t) = g(t)", "diff(g(t), t) = -f(t)"],
                 "functions": ["f(t)", "g(t)"]}"#,
-        ))
-        .is_err());
+            ))
+            .is_err()
+        );
     }
 
     #[test]
     fn requests_are_julia_strings() {
         assert_eq!(jl_string("a\"b\\c$d\ne"), r#""a\"b\\c\$d\ne""#);
         let r = Julia
-            .problem(
-                &problem("simplify", r#"{"expr": "x"}"#),
-                "n-1",
-            )
+            .problem(&problem("simplify", r#"{"expr": "x"}"#), "n-1")
             .unwrap();
         assert_eq!(
             r,

@@ -101,7 +101,10 @@ fn float(s: &str) -> Result<Expr, String> {
     };
     let (whole, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
     if whole.is_empty() && frac.is_empty()
-        || !whole.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit())
+        || !whole
+            .bytes()
+            .chain(frac.bytes())
+            .all(|b| b.is_ascii_digit())
     {
         return Err(format!("`{s}` is not a float"));
     }
@@ -170,15 +173,13 @@ fn is_one(e: &Expr) -> bool {
 fn without_minus(e: &Expr) -> Option<Expr> {
     match e {
         Expr::Neg(c) => Some((**c).clone()),
-        Expr::Bin(op @ (Op::Mul | Op::Div), a, b) => {
-            without_minus(a).map(|a| {
-                if is_one(&a) && *op == Op::Mul {
-                    (**b).clone()
-                } else {
-                    bin(*op, a, (**b).clone())
-                }
-            })
-        }
+        Expr::Bin(op @ (Op::Mul | Op::Div), a, b) => without_minus(a).map(|a| {
+            if is_one(&a) && *op == Op::Mul {
+                (**b).clone()
+            } else {
+                bin(*op, a, (**b).clone())
+            }
+        }),
         _ => None,
     }
 }
@@ -211,9 +212,7 @@ fn product(factors: Vec<Expr>) -> Expr {
     let first = it.next().unwrap_or_else(|| int("1"));
     let first = if negative {
         match first {
-            Expr::Bin(Op::Div, n, d) if matches!(*n, Expr::Int(_)) => {
-                bin(Op::Div, neg(*n), *d)
-            }
+            Expr::Bin(Op::Div, n, d) if matches!(*n, Expr::Int(_)) => bin(Op::Div, neg(*n), *d),
             f => neg(f),
         }
     } else {
@@ -237,11 +236,13 @@ fn node(v: &Value) -> Result<Expr, String> {
             .ok_or_else(|| format!("the node {v} is cut short"))
     };
     let kid = |i: usize| -> Result<Expr, String> {
-        node(a.get(i).ok_or_else(|| format!("the node {v} is cut short"))?)
+        node(
+            a.get(i)
+                .ok_or_else(|| format!("the node {v} is cut short"))?,
+        )
     };
-    let kids = |from: usize| -> Result<Vec<Expr>, String> {
-        a.iter().skip(from).map(node).collect()
-    };
+    let kids =
+        |from: usize| -> Result<Vec<Expr>, String> { a.iter().skip(from).map(node).collect() };
     Ok(match tag {
         "i" => signed_int(text(1)?)?,
         "q" => {
@@ -254,11 +255,7 @@ fn node(v: &Value) -> Result<Expr, String> {
                     _ => Err("0//0".into()),
                 };
             }
-            if is_one(&d) {
-                n
-            } else {
-                bin(Op::Div, n, d)
-            }
+            if is_one(&d) { n } else { bin(Op::Div, n, d) }
         }
         "f" => float(text(1)?)?,
         "c" => {
@@ -344,7 +341,11 @@ fn function(f: &str, mut args: Vec<Expr>) -> Result<Expr, String> {
     let short = f.rsplit('.').next().unwrap_or(f);
     let module = f[..f.len() - short.len()].trim_end_matches('.');
     // Base's functions of its submodule Math (sec, sech, ...) are Base's
-    let module = &if module == "Base.Math" { "Base" } else { module };
+    let module = &if module == "Base.Math" {
+        "Base"
+    } else {
+        module
+    };
     let mut take = || args.remove(0);
     Ok(match (*module, short, n) {
         ("Base", "+", _) if n >= 1 => {
@@ -488,7 +489,9 @@ mod tests {
         let y = r#"["s","y"]"#;
         // x - y, as Julia's sum with -1*y
         assert_eq!(
-            read(&format!(r#"["call","Base.+",{x},["call","Base.*",["i","-1"],{y}]]"#)),
+            read(&format!(
+                r#"["call","Base.+",{x},["call","Base.*",["i","-1"],{y}]]"#
+            )),
             "x - y"
         );
         // 1 - 2*x + x^2/3
@@ -512,7 +515,9 @@ mod tests {
             "x^(1/2)"
         );
         assert_eq!(
-            read(&format!(r#"["call","Base.^",["call","Base.+",{x},["i","1"]],["i","-2"]]"#)),
+            read(&format!(
+                r#"["call","Base.^",["call","Base.+",{x},["i","1"]],["i","-2"]]"#
+            )),
             "(x + 1)^(-2)"
         );
     }
@@ -521,7 +526,9 @@ mod tests {
     fn functions_by_their_neutral_names() {
         let x = r#"["s","x"]"#;
         assert_eq!(
-            read(&format!(r#"["call","SpecialFunctions.besselj",["i","1"],{x}]"#)),
+            read(&format!(
+                r#"["call","SpecialFunctions.besselj",["i","1"],{x}]"#
+            )),
             "bessel_j(1, x)"
         );
         assert_eq!(
@@ -540,14 +547,17 @@ mod tests {
             read(&format!(r#"["call","Base.log",["i","2"],{x}]"#)),
             "log(2, x)"
         );
-        assert_eq!(
-            read(&format!(r#"["call","Base.log10",{x}]"#)),
-            "log(10, x)"
-        );
+        assert_eq!(read(&format!(r#"["call","Base.log10",{x}]"#)), "log(10, x)");
         assert_eq!(read(&format!(r#"["call","Base.ceil",{x}]"#)), "ceiling(x)");
-        assert_eq!(read(&format!(r#"["call","Base.Math.sech",{x}]"#)), "sech(x)");
+        assert_eq!(
+            read(&format!(r#"["call","Base.Math.sech",{x}]"#)),
+            "sech(x)"
+        );
         assert_eq!(read(&format!(r#"["call","Base.identity",{x}]"#)), "x");
-        assert_eq!(read(&format!(r#"["call","Base.complex",{x},["i","-2"]]"#)), "x - 2*i");
+        assert_eq!(
+            read(&format!(r#"["call","Base.complex",{x},["i","-2"]]"#)),
+            "x - 2*i"
+        );
         assert_eq!(
             read(&format!(r#"["call","Elliptic.F",{x},["q","1","2"]]"#)),
             "elliptic_f(x, 1/2)"
@@ -557,18 +567,26 @@ mod tests {
             "fresnel_s(x)"
         );
         assert_eq!(
-            read(&format!(r#"["call","SymbolicIntegration.hypergeometric2f1",["i","1"],["q","1","2"],["i","2"],{x}]"#)),
+            read(&format!(
+                r#"["call","SymbolicIntegration.hypergeometric2f1",["i","1"],["q","1","2"],["i","2"],{x}]"#
+            )),
             "hypergeometric([1, 1/2], [2], x)"
         );
         assert_eq!(
             read(&format!(r#"["call","PolyLog.reli",["i","2"],{x}]"#)),
             "re(polylog(2, x))"
         );
-        assert_eq!(read(&format!(r#"["call","Base.conj",{x}]"#)), "conjugate(x)");
+        assert_eq!(
+            read(&format!(r#"["call","Base.conj",{x}]"#)),
+            "conjugate(x)"
+        );
         // none is guessed at
         assert!(read_answer(&format!(r#"["call","Base.cbrt",{x}]"#)).is_err());
         assert!(read_answer(&format!(r#"["call","Symbolics.scbrt",{x}]"#)).is_err());
-        assert_eq!(read(&format!(r#"["call","Symbolics.ssqrt",{x}]"#)), "sqrt(x)");
+        assert_eq!(
+            read(&format!(r#"["call","Symbolics.ssqrt",{x}]"#)),
+            "sqrt(x)"
+        );
         assert!(read_answer(&format!(r#"["call","Base.ifelse",{x},{x},{x}]"#)).is_err());
         assert!(read_answer(&format!(r#"["call","SpecialFunctions.besselj",{x}]"#)).is_err());
     }
@@ -597,17 +615,18 @@ mod tests {
         );
         assert_eq!(read(r#"["nothing"]"#), "nothing");
         assert_eq!(
-            read(&format!(r#"["fn","∫",["call","SpecialFunctions.besselj",["i","1"],{x}],{x}]"#)),
+            read(&format!(
+                r#"["fn","∫",["call","SpecialFunctions.besselj",["i","1"],{x}],{x}]"#
+            )),
             "integrate(bessel_j(1, x), x)"
         );
         assert_eq!(
-            read(r#"["l",["l",["eq",["s","x"],["call","Base.*",["f","6.283185307179586"],["s","k"]]],["fn","element",["s","k"],["s","integers"]]]]"#),
+            read(
+                r#"["l",["l",["eq",["s","x"],["call","Base.*",["f","6.283185307179586"],["s","k"]]],["fn","element",["s","k"],["s","integers"]]]]"#
+            ),
             "[[x = 6.283185307179586*k, element(k, integers)]]"
         );
-        assert_eq!(
-            read(&format!(r#"["rel","<",{x},["i","1"]]"#)),
-            "x < 1"
-        );
+        assert_eq!(read(&format!(r#"["rel","<",{x},["i","1"]]"#)), "x < 1");
         assert!(read_answer(r#"["fn","sin",["s","x"]]"#).is_err());
         assert!(read_answer(r#"["s","xˍt"]"#).is_err());
     }
