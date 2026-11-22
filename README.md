@@ -102,7 +102,9 @@ time. Keep `--jobs 1` for runs whose times are to be compared: problems run side
 machine's memory and caches. With more jobs the header says how many (`"jobs"`).
 
 The 30-second timeout is a suggestion: a run of the whole suite, about 60,000 problems, then
-takes a day or less, the most of it the problems that time out.
+takes about 30 times the quick subset: on the reference machine, one problem at a time, 2 hours
+for Julia, 2.5 for FriCAS, 4.5 for Maxima, 7 for Giac and 35 for SymPy, the most of it the
+problems that time out.
 
 ### What a problem gets
 

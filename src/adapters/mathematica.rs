@@ -531,6 +531,10 @@ fn say(text: &str) -> String {
 }
 
 impl Adapter for Mathematica {
+    fn clean_version(&self, text: &str) -> String {
+        clean_mathematica_version(text)
+    }
+
     fn name(&self) -> &'static str {
         "Mathematica"
     }
@@ -566,6 +570,22 @@ impl Adapter for Mathematica {
 
     fn tested(&self) -> bool {
         false
+    }
+}
+
+/// `$Version` is "15.0.1 for Microsoft Windows (64-bit) (July 2, 2026)": the version is its
+/// leading number, as Maple's and Julia's are their own number alone.
+fn clean_mathematica_version(text: &str) -> String {
+    let text = text.trim().trim_matches('"');
+    let number: String = text
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let number = number.trim_end_matches('.');
+    if number.is_empty() {
+        text.to_string()
+    } else {
+        number.to_string()
     }
 }
 
@@ -657,5 +677,31 @@ mod matrix_tests {
         for (neutral, want) in golden {
             assert_eq!(&print(neutral), want, "{neutral}");
         }
+    }
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn the_version_is_the_number_alone() {
+        for (text, number) in [
+            (
+                "15.0.1 for Microsoft Windows (64-bit) (July 2, 2026)",
+                "15.0.1",
+            ),
+            ("14.1.0 for Linux x86 (64-bit) (July 16, 2024)\n", "14.1.0"),
+            ("13.3.0 for Mac OS X ARM (64-bit) (June 3, 2023)", "13.3.0"),
+            ("\"14.0.0 for Linux ARM (64-bit)\"", "14.0.0"),
+            ("14.0", "14.0"),
+        ] {
+            assert_eq!(Mathematica.clean_version(text), number);
+        }
+        // what is not a version is left as it is
+        assert_eq!(
+            Mathematica.clean_version("Wolfram Engine"),
+            "Wolfram Engine"
+        );
     }
 }
