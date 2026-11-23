@@ -532,7 +532,7 @@ impl Adapter for Maple {
         Ok(format!(
             "restart;\n{SETTINGS}\n\
              printf(\"\\n@@MR-BEGIN %s\\n\", {n}):\n\
-             mr_c0 := time(): mr_w0 := time[real](): mr_ok := false:\n\
+             mr_c0 := time(): mr_w0 := time[real](): mr_ok := false: mr_err := \"\":\n\
              try mr_r := {}; mr_ok := true; catch: mr_err := StringTools:-FormatMessage(lastexception[2..-1]); end try:\n\
              mr_c1 := time(): mr_w1 := time[real]():\n\
              printf(\"\\n@@MR-TIME %.6f %.6f\\n\", mr_c1 - mr_c0, mr_w1 - mr_w0):\n\
