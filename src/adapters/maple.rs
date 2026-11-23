@@ -504,8 +504,10 @@ impl Adapter for Maple {
         "maple"
     }
 
+    /// On Windows the command-line Maple is `cmaple` (`maple` is a Unix
+    /// script).
     fn default_command(&self) -> &'static str {
-        "maple"
+        if cfg!(windows) { "cmaple" } else { "maple" }
     }
 
     fn spec(&self, program: &str) -> Spec {
