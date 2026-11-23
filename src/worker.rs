@@ -355,6 +355,13 @@ impl<'a> Worker<'a> {
         };
         r.wall = Some(round(w));
         r.cpu = c.map(round);
+        // an answer begun and not ended: the system failed as it printed it
+        // (Maple's lprint: "too many levels of recursion"), and says so there
+        let unfinished = if in_answer {
+            answer.as_ref().map(|lines| tail(&lines.join("\n")))
+        } else {
+            None
+        };
         match answer {
             Some(lines) if !in_answer && errors.is_empty() => {
                 let a = match self.adapter.read_answer(&lines.join("\n")) {
@@ -385,6 +392,13 @@ impl<'a> Worker<'a> {
                 if !noise.is_empty() {
                     msg.push(noise);
                 }
+                if let Some(u) = unfinished {
+                    msg.push(if u.trim().is_empty() {
+                        "the system began its answer and did not finish it".into()
+                    } else {
+                        format!("the system did not finish its answer: {u}")
+                    });
+                }
                 let stderr = stderr.trim();
                 if msg.is_empty() && !stderr.is_empty() {
                     msg.push(stderr.to_string());
@@ -414,4 +428,38 @@ fn now_nanos() -> u64 {
 /// Seconds to the microsecond.
 pub fn round(s: f64) -> f64 {
     (s.max(0.0) * 1e6).round() / 1e6
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Maple solved definite_integral-005057 and failed as it printed the
+    /// answer: the message is that failure, not "no answer".
+    #[test]
+    fn an_answer_not_finished_says_why() {
+        let a = crate::adapters::by_slug("maple").unwrap();
+        let w = Worker::new(a.as_ref(), "cmaple", 0);
+        let mut r = Record::new("p", "error");
+        let text = "\n@@MR-TIME 15.063000 14.195000\n\n@@MR-ANSWER n1\n\
+                    Error, (in factor/remember) too many levels of recursion\n";
+        w.read_result(&mut r, text, "", "n1", 14.2, Some(15.0));
+        assert_eq!(r.status, "error");
+        let m = r.message.unwrap();
+        assert!(
+            m.contains("did not finish its answer") && m.contains("too many levels of recursion"),
+            "{m}"
+        );
+        // a finished answer is read as before
+        let mut r = Record::new("p", "error");
+        w.read_result(
+            &mut r,
+            "@@MR-ANSWER n1\nx+1\n@@MR-ANSWER-END n1\n",
+            "",
+            "n1",
+            0.1,
+            None,
+        );
+        assert_eq!((r.status, r.answer.as_deref()), ("ok", Some("x+1")));
+    }
 }
