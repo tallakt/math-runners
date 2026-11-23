@@ -3,8 +3,8 @@
 //! from a pipe, reset with `ClearAll["Global`*"]` and `ClearSystemCache[]`
 //! before each problem. The answer is `ToString[result, InputForm]`.
 //!
-//! Untested: written from the Wolfram Language documentation, without a
-//! kernel to run it on.
+//! Written from the Wolfram Language documentation; run on Mathematica 15.0.1
+//! (Windows 11).
 
 use std::cell::RefCell;
 
@@ -575,10 +575,6 @@ impl Adapter for Mathematica {
     /// it then did in 7 s.
     fn idle_time(&self) -> std::time::Duration {
         std::time::Duration::from_secs(30)
-    }
-
-    fn tested(&self) -> bool {
-        false
     }
 }
 

@@ -598,10 +598,6 @@ impl Adapter for Maple {
         // lprint ends its line; a long one is broken with a backslash
         text.trim().replace("\\\n", "")
     }
-
-    fn tested(&self) -> bool {
-        false
-    }
 }
 
 /// `kernelopts(version)` says "Maple 2020.2, APPLE UNIVERSAL OSX, Nov 11 2020,

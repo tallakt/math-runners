@@ -14,8 +14,8 @@ One binary has an adapter for each system:
 | FriCAS | `fricas` | `fricas` | FriCAS 1.4.0 (SBCL), macOS; FriCAS 1.3.11 (GCL, Debian trixie), Linux |
 | Giac | `giac` | `giac` (or `icas`) | Giac 1.9.0.93 (Debian trixie), Linux |
 | Julia | `julia` | `julia` (Symbolics.jl and SymbolicIntegration.jl, the versions of `julia/Manifest.toml`) | Julia 1.12.6 (with Symbolics 7.49.0, SymbolicIntegration 3.8.1), macOS |
-| Maple | `maple` | `maple` (on Windows `cmaple`) | **not run**: written from the documentation, see below |
-| Mathematica | `mathematica` | `wolfram` (or `math`, `WolframKernel`) | **not run**: written from the documentation |
+| Maple | `maple` | `maple` (on Windows `cmaple`) | Maple 2026.2, Windows 11 |
+| Mathematica | `mathematica` | `wolfram` (or `math`, `WolframKernel`) | Mathematica 15.0.1, Windows 11 |
 | Mathilda | `mathilda` | `Mathilda` | **not run**: the Mathematica adapter's problems, from Mathilda's user documentation |
 
 ## Install
@@ -513,7 +513,7 @@ its float coefficients, its default; `simplify` may turn `π` into 3.14159...).
 Numeric-fitting integrators (SymbolicNumericIntegration.jl) are not used: a fit is not a solution.
 Nor are Symbolics' bridges to SymPy (`sympy_integrate`, ...), which would run SymPy, not Julia.
 
-### Maple (untested)
+### Maple
 
 The answer is `lprint(result)` with `interface(prettyprint = 0, screenwidth = infinity)`. The
 assumptions are given with `assuming`. Matrices and vectors are written as lists.
@@ -545,7 +545,7 @@ The runner sends it the Mathematica adapter's problems (below), the same command
 of `Mathilda` from a pipe. Its answers are Mathematica's `InputForm`, which the checker reads as
 Mathematica's. The adapter is written from Mathilda's user documentation, not from its source.
 
-### Mathematica (untested)
+### Mathematica
 
 The answer is `ToString[result, InputForm, PageWidth -> Infinity]`; the version is `$Version`.
 
