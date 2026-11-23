@@ -323,6 +323,27 @@ mod nested_tests {
         }
     }
 
+    /// A one-sided limit: its `direction`, `+` or `-`, is a word of the task, not an expression,
+    /// and every adapter writes the problem (the nested forms and the indexed check read only
+    /// the expressions).
+    #[test]
+    fn one_sided_limits_are_given() {
+        for dir in ["+", "-"] {
+            let p = Problem::from_json(&json!({
+                "id": "t-3",
+                "category": "limit",
+                "problem": {"op": "limit", "args": {"expr": "1/x", "var": "x", "point": "0", "direction": dir}}
+            }))
+            .unwrap();
+            p.check_indexed().unwrap();
+            assert!(p.nested_variables().unwrap().is_empty());
+            for a in all() {
+                a.problem(&p, "n1")
+                    .unwrap_or_else(|e| panic!("{}: {dir}: {e}", a.slug()));
+            }
+        }
+    }
+
     /// An indexed quantity under a sum or a product is refused (the worker does it before the
     /// adapter): `b_j` over `j`, in a nested form and in a sum of the problem's own.
     #[test]
