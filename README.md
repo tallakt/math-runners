@@ -307,11 +307,11 @@ Where the formats name no convention, the runner chose (and the checker should k
 - **`domain`** of `factor`: `rationals` or `integers` (the default), or `gaussian` for the Gaussian
   rationals; another is `unsupported`. **`order`** of `groebner`: `lex`, `grlex` or `grevlex`.
 - **`convention`** of a transform: only the formats' default; another is `unsupported`.
-- **`order`** of a series: the systems that truncate at a power (SymPy's and Maple's `series`)
-  get `order`; those that keep the powers up to one (Maxima's `taylor`, FriCAS's `approximate`,
-  Giac's and Mathematica's `Series`) get `order - 1`. The two agree for whole powers, of
-  `var - point` or, at infinity, of `1/var`; a Puiseux series' fractional powers between
-  `order - 1` and `order` are left out by the second kind.
+- **`order`** of a series: the systems that truncate at a power (SymPy's `series`, and Maple's
+  as the runner cuts it, see Maple below) get `order`; those that keep the powers up to one
+  (Maxima's `taylor`, FriCAS's `approximate`, Giac's and Mathematica's `Series`) get `order - 1`.
+  The two agree for whole powers, of `var - point` or, at infinity, of `1/var`; a Puiseux series'
+  fractional powers between `order - 1` and `order` are left out by the second kind.
 
 ### Nested forms in a problem
 
@@ -524,7 +524,7 @@ assumptions are given with `assuming`. Matrices and vectors are written as lists
 | solve_ode | `dsolve({eqs, conditions}, y(x))`, a system with `{funcs}` | |
 | solve_pde | `pdsolve(eq, u(x, t))`, `pdsolve([eq, conditions], u(x, t))` | |
 | sum, product, solve_recurrence | `sum`, `product`, `rsolve({eqs, conditions}, a(n))` | |
-| limit, series | `limit(f, x = a, right/left)`, `convert(series(f, x = a, order), polynom)` | |
+| limit, series | `limit(f, x = a, right/left)`; `series(f, x = a, n)`, `n` raised until the O term is at `order` or beyond (and where `n` is too low to see a denominator's first term, "division by zero series"), in `t = x - a` (`1/x` at infinity) | the terms of power below `order` (Maple's `n` cuts the work, not the answer: of `exp(-3*x)/x^5` to `n = 4` it gives the powers up to -2, and it refuses an `n` below 0) |
 | transforms | `inttrans:-laplace`, `invlaplace`, `fourier`, `invfourier`, `mellin`, `invmellin`, `ztrans`, `invztrans` (inttrans's Fourier transform is the formats' one) | |
 | solve | `solve({eqs}, [vars], allsolutions)`, `RealDomain:-solve` for `real` | a list of lists |
 | simplify, evaluate, hyperexpand | `simplify`, `simplify(value(f))`, `simplify(convert(f, StandardFunctions))` | |
