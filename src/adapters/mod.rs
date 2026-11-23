@@ -88,6 +88,15 @@ pub trait Adapter: Send + Sync {
         std::time::Duration::from_secs(300)
     }
 
+    /// How long the system may print nothing and compute nothing in a
+    /// problem before it is taken as waiting for input: 3 s, as Maxima stops
+    /// to ask. A system that never asks has a longer time: its kernel may sit
+    /// for seconds with no CPU time for another reason, and a hang is a
+    /// timeout.
+    fn idle_time(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(3)
+    }
+
     /// Whether the adapter was tested against the system.
     fn tested(&self) -> bool {
         true
@@ -321,6 +330,21 @@ mod nested_tests {
             a.problem(&p, "n1")
                 .unwrap_or_else(|e| panic!("{}: {e}", a.slug()));
         }
+    }
+
+    /// A system that stops to ask is seen waiting after 3 s; Mathematica, which never asks,
+    /// only after 30 s of no output and no CPU time.
+    #[test]
+    fn idle_times() {
+        use std::time::Duration;
+        assert_eq!(
+            by_slug("maxima").unwrap().idle_time(),
+            Duration::from_secs(3)
+        );
+        assert_eq!(
+            by_slug("mathematica").unwrap().idle_time(),
+            Duration::from_secs(30)
+        );
     }
 
     /// A one-sided limit: its `direction`, `+` or `-`, is a word of the task, not an expression,

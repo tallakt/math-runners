@@ -164,8 +164,9 @@ problems that time out.
   If `math-run` itself is killed (`kill -9`), Linux kills the system with it; on macOS a system
   that was computing keeps going until it is done: look for it in `ps` before you resume.
 - **Questions.** A system that stops to ask (as Maxima's "Is a positive, negative or zero?") is
-  seen as waiting: no output and no CPU time for 3 seconds. The problem is written as `error`, with
-  the question as its message.
+  seen as waiting: no output and no CPU time for 3 seconds (Mathematica, which never asks, 30
+  seconds: its kernel was seen to sit longer than that within a `DSolve`). The problem is written
+  as `error`, with the question as its message.
 
 | system | reset | clock |
 |---|---|---|

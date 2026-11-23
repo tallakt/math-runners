@@ -115,7 +115,7 @@ impl<'a> Worker<'a> {
                 Instant::now() + self.adapter.start_time(),
                 true,
             )
-            .inspect(|_| s.set_idle(Duration::from_secs(3)))
+            .inspect(|_| s.set_idle(self.adapter.idle_time()))
             .map_err(|e| {
                 let err = s.take_stderr();
                 let what = match e {

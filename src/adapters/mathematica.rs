@@ -570,6 +570,13 @@ impl Adapter for Mathematica {
         "Quit[]"
     }
 
+    /// The kernel never stops to ask (its input is the problems); it was seen
+    /// to sit 3 s with no CPU time in a `DSolve` (pde-007223, Windows), which
+    /// it then did in 7 s.
+    fn idle_time(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(30)
+    }
+
     fn tested(&self) -> bool {
         false
     }
