@@ -208,7 +208,41 @@ struct Script {
     task: String,
     /// The answer, an expression of `mr_r`, the task's value.
     answer: String,
+    /// Procedures the task calls, defined after the reset and before the
+    /// timing (untimed).
+    prelude: &'static str,
 }
+
+/// The formats' series, its `order` the power the terms stay below: the terms
+/// below `(x - a)^order` (at infinity, below `(1/x)^order`). Maple's `series`
+/// takes its order as a truncation of the work, not of the answer: of
+/// `exp(-3*x)/x^5` to order 4 it gives the terms up to `x^(-2)`, to order 1 up
+/// to `x^0`, and it refuses an order below 0. So `mr_series` expands in
+/// `t = x - a` (or `1/x`), raising Maple's order until the series' O term is at
+/// the order asked or beyond, and keeps the terms whose power (`t f'/f` of the
+/// term, its limit where a logarithm makes it no number) is below it. An order
+/// too low to see a denominator's first term is "division by zero series"
+/// (`1/(x*atan(x^2))` to order 2): it is raised too.
+const SERIES_PROCS: &str = "mr_e := proc(T, t) local e; \
+if T = 0 then return infinity end if; \
+e := simplify(t*diff(T, t)/T); \
+if not type(e, numeric) then e := limit(e, t = 0, right) end if; e end proc:\n\
+mr_o := proc(s, t) local z; \
+if type(s, series) then order(s) else \
+z := indets(s, specfunc(anything, O)); \
+if z = {} then infinity else min(op(map(u -> mr_e(op(1, u), t), z))) end if end if end proc:\n\
+mr_series := proc(f, x, a, n) local t, g, N, s, o, p, k, T, e, r; \
+if a = infinity then g := eval(f, x = 1/t) elif a = -infinity then g := eval(f, x = -1/t) \
+else g := eval(f, x = a + t) end if; \
+N := max(n, 1); \
+for k to 12 do \
+try s := series(g, t = 0, N) catch \"division by zero\": if k = 12 then error end if; N := N + 4; next end try; \
+o := mr_o(s, t); if o >= n then break end if; N := N + max(1, ceil(n - o)) end do; \
+p := convert(s, polynom); r := 0; \
+for T in `if`(type(p, `+`), [op(p)], [p]) do e := mr_e(T, t); \
+if not (type(e, numeric) and e >= n) then r := r + T end if end do; \
+if a = infinity then eval(r, t = 1/x) elif a = -infinity then eval(r, t = -1/x) \
+else eval(r, t = x - a) end if end proc:";
 
 fn build(p: &Problem) -> Result<Script, Unsupported> {
     let funcs = p.unknown_functions()?;
@@ -245,6 +279,7 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
         assume.push(format!("{}::{fact}", pr.print(&Expr::Sym(v))?));
     }
     let mut answer = "mr_r".to_string();
+    let mut prelude = "";
     let listlist = |m: &str| format!("convert({m}, listlist)");
     let task = match p.op.as_str() {
         "integrate" => {
@@ -317,13 +352,16 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
                 arg("point")?
             )
         }
-        "series" => format!(
-            "convert(series({}, {} = {}, {}), polynom)",
-            arg("expr")?,
-            var("var")?,
-            arg("point")?,
-            p.int("order")?
-        ),
+        "series" => {
+            prelude = SERIES_PROCS;
+            format!(
+                "mr_series({}, {}, {}, {})",
+                arg("expr")?,
+                var("var")?,
+                arg("point")?,
+                p.int("order")?
+            )
+        }
         "laplace"
         | "inverse_laplace"
         | "fourier"
@@ -485,7 +523,11 @@ fn build(p: &Problem) -> Result<Script, Unsupported> {
     } else {
         format!("({task}) assuming {}", assume.join(", "))
     };
-    Ok(Script { task, answer })
+    Ok(Script {
+        task,
+        answer,
+        prelude,
+    })
 }
 
 const SETTINGS: &str =
@@ -504,8 +546,10 @@ impl Adapter for Maple {
         "maple"
     }
 
+    /// On Windows the command-line Maple is `cmaple` (`maple` is a Unix
+    /// script).
     fn default_command(&self) -> &'static str {
-        "maple"
+        if cfg!(windows) { "cmaple" } else { "maple" }
     }
 
     fn spec(&self, program: &str) -> Spec {
@@ -527,10 +571,15 @@ impl Adapter for Maple {
     fn problem(&self, p: &Problem, nonce: &str) -> Result<String, Unsupported> {
         let s = build(p)?;
         let n = quoted(nonce);
+        let prelude = if s.prelude.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", s.prelude)
+        };
         Ok(format!(
-            "restart;\n{SETTINGS}\n\
+            "restart;\n{SETTINGS}\n{prelude}\
              printf(\"\\n@@MR-BEGIN %s\\n\", {n}):\n\
-             mr_c0 := time(): mr_w0 := time[real](): mr_ok := false:\n\
+             mr_c0 := time(): mr_w0 := time[real](): mr_ok := false: mr_err := \"\":\n\
              try mr_r := {}; mr_ok := true; catch: mr_err := StringTools:-FormatMessage(lastexception[2..-1]); end try:\n\
              mr_c1 := time(): mr_w1 := time[real]():\n\
              printf(\"\\n@@MR-TIME %.6f %.6f\\n\", mr_c1 - mr_c0, mr_w1 - mr_w0):\n\
@@ -549,10 +598,6 @@ impl Adapter for Maple {
         // lprint ends its line; a long one is broken with a backslash
         text.trim().replace("\\\n", "")
     }
-
-    fn tested(&self) -> bool {
-        false
-    }
 }
 
 /// `kernelopts(version)` says "Maple 2020.2, APPLE UNIVERSAL OSX, Nov 11 2020,
@@ -569,6 +614,39 @@ fn clean_maple_version(text: &str) -> String {
         .unwrap_or(first)
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod series_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A series to an order of the answer, of any sign: `mr_series`, defined
+    /// before the problem's time begins.
+    #[test]
+    fn a_series_is_cut_at_the_order_asked() {
+        let p = Problem::from_json(&json!({
+            "id": "s-1",
+            "category": "series",
+            "problem": {"op": "series", "args": {"expr": "exp(-3*x)/x^5", "var": "x", "point": "0", "order": "-1"}}
+        }))
+        .unwrap();
+        let text = Maple.problem(&p, "n1").unwrap();
+        assert!(
+            text.contains("try mr_r := mr_series(exp(-3*x)/x^5, x, 0, -1);"),
+            "{text}"
+        );
+        let defined = text.find("mr_series := proc").unwrap();
+        assert!(defined < text.find("@@MR-BEGIN").unwrap(), "{text}");
+        // other problems are given without it
+        let q = Problem::from_json(&json!({
+            "id": "s-2",
+            "category": "limit",
+            "problem": {"op": "limit", "args": {"expr": "sin(x)/x", "var": "x", "point": "0"}}
+        }))
+        .unwrap();
+        assert!(!Maple.problem(&q, "n2").unwrap().contains("mr_series"));
+    }
 }
 
 #[cfg(test)]

@@ -3,8 +3,8 @@
 //! from a pipe, reset with `ClearAll["Global`*"]` and `ClearSystemCache[]`
 //! before each problem. The answer is `ToString[result, InputForm]`.
 //!
-//! Untested: written from the Wolfram Language documentation, without a
-//! kernel to run it on.
+//! Written from the Wolfram Language documentation; run on Mathematica 15.0.1
+//! (Windows 11).
 
 use std::cell::RefCell;
 
@@ -507,7 +507,9 @@ pub(crate) fn problem_parts(p: &Problem, nonce: &str) -> Result<Parts, Unsupport
         begin: say(&format!("@@MR-BEGIN {nonce}")),
         work: vec![
             format!("mrC0 = TimeUsed[]; mrW0 = AbsoluteTime[]; mrR = {task}; mrC1 = TimeUsed[]; mrW1 = AbsoluteTime[];"),
-            "WriteString[\"stdout\", \"\\n@@MR-TIME \", ToString[NumberForm[mrC1 - mrC0, {12, 6}]], \" \", ToString[NumberForm[mrW1 - mrW0, {12, 6}]], \"\\n\"];".into(),
+            // plain decimals: NumberForm writes 1.23*10^-7 on two lines (`×`, the exponent
+            // above), which would break the time line
+            "WriteString[\"stdout\", \"\\n@@MR-TIME \", ToString[NumberForm[mrC1 - mrC0, {12, 6}, ExponentFunction -> (Null &)]], \" \", ToString[NumberForm[mrW1 - mrW0, {12, 6}, ExponentFunction -> (Null &)]], \"\\n\"];".into(),
             format!("WriteString[\"stdout\", \"\\n@@MR-ANSWER \", {n}, \"\\n\", ToString[mrR, InputForm, PageWidth -> Infinity], \"\\n@@MR-ANSWER-END \", {n}, \"\\n\"];"),
         ],
         end: say(&format!("@@MR-END {nonce}")),
@@ -568,8 +570,11 @@ impl Adapter for Mathematica {
         "Quit[]"
     }
 
-    fn tested(&self) -> bool {
-        false
+    /// The kernel never stops to ask (its input is the problems); it was seen
+    /// to sit 3 s with no CPU time in a `DSolve` (pde-007223, Windows), which
+    /// it then did in 7 s.
+    fn idle_time(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(30)
     }
 }
 

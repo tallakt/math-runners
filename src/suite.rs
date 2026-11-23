@@ -104,10 +104,16 @@ pub fn ordered(problems: &[Problem], subset: &str) -> Vec<Problem> {
     calibration
 }
 
-/// The cache of fetched suites: `$MATH_RUN_CACHE`, or the user's cache.
+/// The cache of fetched suites: `$MATH_RUN_CACHE`, or the user's cache
+/// (on Windows `%LOCALAPPDATA%\math-run`).
 pub fn cache_dir() -> PathBuf {
     if let Ok(d) = std::env::var("MATH_RUN_CACHE") {
         return PathBuf::from(d);
+    }
+    if cfg!(windows)
+        && let Ok(d) = std::env::var("LOCALAPPDATA")
+    {
+        return PathBuf::from(d).join("math-run");
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     if cfg!(target_os = "macos") {

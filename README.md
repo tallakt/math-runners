@@ -14,14 +14,15 @@ One binary has an adapter for each system:
 | FriCAS | `fricas` | `fricas` | FriCAS 1.4.0 (SBCL), macOS; FriCAS 1.3.11 (GCL, Debian trixie), Linux |
 | Giac | `giac` | `giac` (or `icas`) | Giac 1.9.0.93 (Debian trixie), Linux |
 | Julia | `julia` | `julia` (Symbolics.jl and SymbolicIntegration.jl, the versions of `julia/Manifest.toml`) | Julia 1.12.6 (with Symbolics 7.49.0, SymbolicIntegration 3.8.1), macOS |
-| Maple | `maple` | `maple` | **not run**: written from the documentation, see below |
-| Mathematica | `mathematica` | `wolfram` (or `math`, `WolframKernel`) | **not run**: written from the documentation |
+| Maple | `maple` | `maple` (on Windows `cmaple`) | Maple 2026.2, Windows 11 |
+| Mathematica | `mathematica` | `wolfram` (or `math`, `WolframKernel`) | Mathematica 15.0.1, Windows 11 |
 | Mathilda | `mathilda` | `Mathilda` | **not run**: the Mathematica adapter's problems, from Mathilda's user documentation |
 
 ## Install
 
-`math-run` runs on Linux (x86_64, aarch64) and macOS (arm64, and Intel by building it); not on
-Windows (use WSL). It needs the network only to fetch the suite and to upload.
+`math-run` runs on Linux (x86_64, aarch64) and macOS (arm64, and Intel by building it), and on
+Windows (x86_64, run on Windows 11) by building it: see [Windows](#windows). It needs the network
+only to fetch the suite and to upload.
 
 Download the binary for your machine from the site's [downloads](https://math.osp.no/downloads)
 (check the SHA-256 given there), unpack it (`tar xzf math-run-0.3.1-linux-x86_64.tar.gz`; GNU tar
@@ -57,13 +58,50 @@ Install the system you run, so that its program is on the `PATH`, or give the pr
   environment. Each `--jobs` is a Julia process of its own, one thread, about 1.2 GB after the
   start, more as it works: give each job a physical core and 4 GB (`--memory-gb 4`).
 - **Maple**: the `maple` command-line script of your Maple installation, as
-  `/Applications/Maple 2023/maple` on macOS.
+  `/Applications/Maple 2023/maple` on macOS; on Windows `cmaple.exe`.
 - **Mathematica**: the command-line kernel, `wolfram` (Wolfram Engine, Mathematica).
 
 `math-run version -s <system>` starts the system and prints its version, as the run file will
 have it. Do this first: a system that is not installed, or a `--command` that is not the system's
 command-line program, is told here and not after the suite is fetched (a program that prints
 nothing and computes nothing for 20 seconds is taken as not being the system).
+
+### Windows
+
+Build it with Rust's MSVC toolchain (`rustup`, host `x86_64-pc-windows-msvc`) and Visual Studio's
+C++ build tools (the linker, and the compiler that one of the crates needs):
+
+```
+cargo build --release        # target\release\math-run.exe
+```
+
+Give the system's console program with `--command` where its folder is not on the `PATH`: Maple's
+is `cmaple.exe` in `bin.X86_64_WINDOWS` of the installation (`maplew.exe` is the window, not a
+console program), Mathematica's `wolfram.exe` in the installation's folder:
+
+```
+math-run version -s maple --command "C:\Program Files\Maple 2026\bin.X86_64_WINDOWS\cmaple.exe"
+math-run version -s mathematica --command "C:\path\to\Mathematica\wolfram.exe"
+```
+
+What differs from Linux and macOS:
+
+- **The processes.** The system is started suspended, put in a job object of its own, and only
+  then let run, so that the processes it starts are in the job too (`cmaple` starts the kernel
+  `mserver`). A timeout kills the job, and the job is killed when the runner ends, however it
+  ends (Ctrl-C, its window closed, `taskkill /f`): no system is left computing. The CPU time of a
+  problem that runs out of time is the job's (its processes' user and kernel time, the ended ones
+  too), its memory for `--memory-gb` the sum of the working sets of the job's processes.
+- **The clocks.** Windows counts CPU time in ticks of 15.6 ms, and Mathematica's clocks on Windows
+  (`TimeUsed[]`, `AbsoluteTime[]`) step by about 1 ms: a problem shorter than a step has the time
+  0.
+- **The cache** of fetched suites is `%LOCALAPPDATA%\math-run`.
+- **What is private** (see [The run file](#the-run-file)): `%USERPROFILE%` becomes `~`, also
+  written with `/` and in its short form (`C:\Users\ANNAMA~1`, as temporary paths have it), and
+  `%USERNAME%` and `%COMPUTERNAME%` `<user>` and `<host>`, in any case.
+- **The machine** is read from the registry (the CPU's name, the version of Windows) and the system
+  information API; its id is the hash of Windows's `MachineGuid`.
+- The other systems are not tried on Windows; the Giac adapter starts Giac through `sh`.
 
 ## Run
 
@@ -126,8 +164,9 @@ problems that time out.
   If `math-run` itself is killed (`kill -9`), Linux kills the system with it; on macOS a system
   that was computing keeps going until it is done: look for it in `ps` before you resume.
 - **Questions.** A system that stops to ask (as Maxima's "Is a positive, negative or zero?") is
-  seen as waiting: no output and no CPU time for 3 seconds. The problem is written as `error`, with
-  the question as its message.
+  seen as waiting: no output and no CPU time for 3 seconds (Mathematica, which never asks, 30
+  seconds: its kernel was seen to sit longer than that within a `DSolve`). The problem is written
+  as `error`, with the question as its message.
 
 | system | reset | clock |
 |---|---|---|
@@ -268,11 +307,11 @@ Where the formats name no convention, the runner chose (and the checker should k
 - **`domain`** of `factor`: `rationals` or `integers` (the default), or `gaussian` for the Gaussian
   rationals; another is `unsupported`. **`order`** of `groebner`: `lex`, `grlex` or `grevlex`.
 - **`convention`** of a transform: only the formats' default; another is `unsupported`.
-- **`order`** of a series: the systems that truncate at a power (SymPy's and Maple's `series`)
-  get `order`; those that keep the powers up to one (Maxima's `taylor`, FriCAS's `approximate`,
-  Giac's and Mathematica's `Series`) get `order - 1`. The two agree for whole powers, of
-  `var - point` or, at infinity, of `1/var`; a Puiseux series' fractional powers between
-  `order - 1` and `order` are left out by the second kind.
+- **`order`** of a series: the systems that truncate at a power (SymPy's `series`, and Maple's
+  as the runner cuts it, see Maple below) get `order`; those that keep the powers up to one
+  (Maxima's `taylor`, FriCAS's `approximate`, Giac's and Mathematica's `Series`) get `order - 1`.
+  The two agree for whole powers, of `var - point` or, at infinity, of `1/var`; a Puiseux series'
+  fractional powers between `order - 1` and `order` are left out by the second kind.
 
 ### Nested forms in a problem
 
@@ -474,7 +513,7 @@ its float coefficients, its default; `simplify` may turn `π` into 3.14159...).
 Numeric-fitting integrators (SymbolicNumericIntegration.jl) are not used: a fit is not a solution.
 Nor are Symbolics' bridges to SymPy (`sympy_integrate`, ...), which would run SymPy, not Julia.
 
-### Maple (untested)
+### Maple
 
 The answer is `lprint(result)` with `interface(prettyprint = 0, screenwidth = infinity)`. The
 assumptions are given with `assuming`. Matrices and vectors are written as lists.
@@ -485,7 +524,7 @@ assumptions are given with `assuming`. Matrices and vectors are written as lists
 | solve_ode | `dsolve({eqs, conditions}, y(x))`, a system with `{funcs}` | |
 | solve_pde | `pdsolve(eq, u(x, t))`, `pdsolve([eq, conditions], u(x, t))` | |
 | sum, product, solve_recurrence | `sum`, `product`, `rsolve({eqs, conditions}, a(n))` | |
-| limit, series | `limit(f, x = a, right/left)`, `convert(series(f, x = a, order), polynom)` | |
+| limit, series | `limit(f, x = a, right/left)`; `series(f, x = a, n)`, `n` raised until the O term is at `order` or beyond (and where `n` is too low to see a denominator's first term, "division by zero series"), in `t = x - a` (`1/x` at infinity) | the terms of power below `order` (Maple's `n` cuts the work, not the answer: of `exp(-3*x)/x^5` to `n = 4` it gives the powers up to -2, and it refuses an `n` below 0) |
 | transforms | `inttrans:-laplace`, `invlaplace`, `fourier`, `invfourier`, `mellin`, `invmellin`, `ztrans`, `invztrans` (inttrans's Fourier transform is the formats' one) | |
 | solve | `solve({eqs}, [vars], allsolutions)`, `RealDomain:-solve` for `real` | a list of lists |
 | simplify, evaluate, hyperexpand | `simplify`, `simplify(value(f))`, `simplify(convert(f, StandardFunctions))` | |
@@ -506,7 +545,7 @@ The runner sends it the Mathematica adapter's problems (below), the same command
 of `Mathilda` from a pipe. Its answers are Mathematica's `InputForm`, which the checker reads as
 Mathematica's. The adapter is written from Mathilda's user documentation, not from its source.
 
-### Mathematica (untested)
+### Mathematica
 
 The answer is `ToString[result, InputForm, PageWidth -> Infinity]`; the version is `$Version`.
 

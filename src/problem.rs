@@ -130,16 +130,21 @@ impl Problem {
         }
     }
 
+    /// The arguments that are expressions: all but the words that say how
+    /// (`direction: "+"` is no expression, and would not be read as one).
+    fn expression_args(&self) -> impl Iterator<Item = (&String, &Value)> {
+        self.args.iter().filter(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "domain" | "direction" | "convention" | "order" | "statement"
+            )
+        })
+    }
+
     /// Every symbol of the arguments, in order.
     pub fn all_symbols(&self) -> Result<Vec<String>, Unsupported> {
         let mut out = Vec::new();
-        for (key, v) in &self.args {
-            if matches!(
-                key.as_str(),
-                "domain" | "direction" | "convention" | "order" | "statement"
-            ) {
-                continue;
-            }
+        for (key, v) in self.expression_args() {
             for e in values_exprs(key, v)? {
                 e.symbols(&mut out);
             }
@@ -152,7 +157,7 @@ impl Problem {
     /// The nested forms of the arguments, each with its variable, in order.
     pub fn nested_forms(&self) -> Result<Vec<(String, Nested)>, Unsupported> {
         let mut forms = Vec::new();
-        for (key, v) in &self.args {
+        for (key, v) in self.expression_args() {
             for e in values_exprs(key, v)? {
                 e.nested(&mut forms);
             }
@@ -183,7 +188,7 @@ impl Problem {
         {
             terms.push((term, var));
         }
-        for (key, v) in &self.args {
+        for (key, v) in self.expression_args() {
             for e in values_exprs(key, v)? {
                 let mut sums = Vec::new();
                 e.sums(&mut sums);

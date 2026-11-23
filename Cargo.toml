@@ -7,11 +7,29 @@ license = "Apache-2.0"
 [dependencies]
 clap = { version = "4.6.7", features = ["derive", "env"] }
 flate2 = "1.1.10"
-libc = "0.2.191"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = "0.11.1"
 ureq = "3.5.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.191"
+
+# Windows: the system's processes are kept in a job object (killed together,
+# their CPU time and memory read from it); the machine is read from the
+# registry and the system information API.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
 
 [workspace]
 members = [".", "xtask"]
