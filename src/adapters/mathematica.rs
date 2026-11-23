@@ -507,7 +507,9 @@ pub(crate) fn problem_parts(p: &Problem, nonce: &str) -> Result<Parts, Unsupport
         begin: say(&format!("@@MR-BEGIN {nonce}")),
         work: vec![
             format!("mrC0 = TimeUsed[]; mrW0 = AbsoluteTime[]; mrR = {task}; mrC1 = TimeUsed[]; mrW1 = AbsoluteTime[];"),
-            "WriteString[\"stdout\", \"\\n@@MR-TIME \", ToString[NumberForm[mrC1 - mrC0, {12, 6}]], \" \", ToString[NumberForm[mrW1 - mrW0, {12, 6}]], \"\\n\"];".into(),
+            // plain decimals: NumberForm writes 1.23*10^-7 on two lines (`×`, the exponent
+            // above), which would break the time line
+            "WriteString[\"stdout\", \"\\n@@MR-TIME \", ToString[NumberForm[mrC1 - mrC0, {12, 6}, ExponentFunction -> (Null &)]], \" \", ToString[NumberForm[mrW1 - mrW0, {12, 6}, ExponentFunction -> (Null &)]], \"\\n\"];".into(),
             format!("WriteString[\"stdout\", \"\\n@@MR-ANSWER \", {n}, \"\\n\", ToString[mrR, InputForm, PageWidth -> Infinity], \"\\n@@MR-ANSWER-END \", {n}, \"\\n\"];"),
         ],
         end: say(&format!("@@MR-END {nonce}")),
